@@ -7,5 +7,8 @@ import (
 )
 
 func SetupRoutes(r *gin.Engine) {
-	r.GET("/expenses", controllers.GetExpenses)
+	// Crea una instancia del controlador
+	expenseCtrl := controllers.NewExpenseController()
+	r.GET("/expenses", expenseCtrl.GetExpenses)
+	r.GET("/expenses/summary", expenseCtrl.GetExpensesSummary)
 }
