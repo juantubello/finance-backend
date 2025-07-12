@@ -12,16 +12,34 @@ import (
 	"gorm.io/gorm"
 )
 
-// ExpenseService define la interfaz para operaciones con gastos
-type ExpenseService interface {
-	GetExpenses(c *gin.Context)
-	GetExpensesSummary(c *gin.Context)
-	formatAmount(amount float64) string
-	getDB() (*gorm.DB, error)
-}
-
 // BaseExpense contiene la lógica compartida
 type BaseExpense struct{}
+
+// ExpenseController implementa BaseExpense para poder utilizar sus metodos
+type ExpenseController struct {
+	*BaseExpense // Embedding para heredar métodos
+}
+
+// Expenses response inherit Expenses model and add new json field for formatted amount
+type FormattedExpenseResponse struct {
+	models.Expenses
+	FormattedAmount string `json:"formatted_amount"`
+}
+
+// Summary types (items)
+type TypeSummary struct {
+	Type           string  `json:"type"`
+	Total          float64 `json:"total"`
+	FormattedTotal string  `json:"formatted_total"`
+}
+
+// Summary overview (header)
+type ExpensesSummaryResponse struct {
+	Total          float64       `json:"total"`
+	FormattedTotal string        `json:"formatted_total"`
+	Period         string        `json:"period"`
+	TypesSummary   []TypeSummary `json:"types_summary"`
+}
 
 // formatAmount formatea montos en pesos argentinos
 func (e *BaseExpense) formatAmount(amount float64) string {
@@ -39,22 +57,11 @@ func (e *BaseExpense) getDB() (*gorm.DB, error) {
 	return db, nil
 }
 
-// ExpenseController implementa ExpenseService
-type ExpenseController struct {
-	*BaseExpense // Embedding para heredar métodos
-}
-
 // NewExpenseController crea una nueva instancia del controlador
 func NewExpenseController() *ExpenseController {
 	return &ExpenseController{
 		BaseExpense: &BaseExpense{},
 	}
-}
-
-// FormattedExpenseResponse representa la respuesta formateada
-type FormattedExpenseResponse struct {
-	models.Expenses
-	FormattedAmount string `json:"formatted_amount"`
 }
 
 // GetExpenses obtiene los gastos filtrados por fecha
@@ -84,20 +91,6 @@ func (ec *ExpenseController) GetExpenses(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, formatted)
-}
-
-// SummaryResponse representa la respuesta del resumen
-type TypeSummary struct {
-	Type           string  `json:"type"`
-	Total          float64 `json:"total"`
-	FormattedTotal string  `json:"formatted_total"`
-}
-
-type ExpensesSummaryResponse struct {
-	Total          float64       `json:"total"`
-	FormattedTotal string        `json:"formatted_total"`
-	Period         string        `json:"period"`
-	TypesSummary   []TypeSummary `json:"types_summary"`
 }
 
 // GetExpensesSummary obtiene el resumen de gastos por categoría,
