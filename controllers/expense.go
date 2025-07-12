@@ -3,7 +3,9 @@ package controllers
 import (
 	"finance-backend/config"
 	"finance-backend/models"
+	"finance-backend/services"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -101,6 +103,24 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 	month := c.Query("month")
 	datePattern := fmt.Sprintf("%s-%s%%", year, month)
 	period := fmt.Sprintf("%s-%s", month, year)
+
+	spreadsheetID := config.GetEnv("GS_SPREADSHEET_ID")
+	sheetName := config.GetEnv("GS_SHEET_ID")
+
+	// Crear instancia del lector
+	sheetsReader, err := services.NewGoogleSheetsReader(spreadsheetID)
+	if err != nil {
+		log.Fatalf("Error al crear lector de Google Sheets: %v", err)
+	}
+
+	// Opción 1: Leer datos y procesarlos manualmente
+	sheetRange := "Gastos!A:Z" // Lee todas las columnas
+	data, err := sheetsReader.ReadSheet(sheetName, sheetRange)
+	fmt.Println(data)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Se leyeron %d filas (incluyendo encabezados)", len(data))
 
 	db, err := ec.getDB()
 	if err != nil {
