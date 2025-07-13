@@ -223,21 +223,21 @@ func (ec *ExpenseController) SyncCurrentMonthExpenses(c *gin.Context) {
 		}
 
 		//Use current loop to validate the uuids
-		if uuidFromSheet, exists := uuidsFromSheet[uuidStr]; !exists {
-			message := "row to be deleted from DB:" + uuidStr + " " + row.Description
-			fmt.Println(message)
-			expensesToDelete = append(expensesToDelete, uuidFromSheet)
+		if _, exists := uuidsFromSheet[uuidStr]; !exists {
+			expensesToDelete = append(expensesToDelete, row)
 		}
 	}
 
 	for _, row := range uuidsFromSheet {
-		if uuidFromDatabase, exists := uuidsFromDatabase[row.UUID]; !exists {
-			message := "row to be inserted in DB: " + row.UUID + " " + row.Description
-			fmt.Println(message)
-			expensesToInsert = append(expensesToInsert, uuidFromDatabase)
+		if _, exists := uuidsFromDatabase[row.UUID]; !exists {
+			expensesToInsert = append(expensesToInsert, row)
 		}
 	}
 
+	fmt.Println("Rows to be deleted:")
+	fmt.Println(expensesToDelete)
+	fmt.Println("Rows to be inserted:")
+	fmt.Println(expensesToInsert)
 	c.JSON(http.StatusOK, "{status: ok}")
 }
 
