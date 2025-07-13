@@ -48,6 +48,20 @@ type ExpensesSummaryResponse struct {
 	TypesSummary   []TypeSummary `json:"types_summary"`
 }
 
+type ExpenseSyncResponse struct {
+	DeletedRows        int                         `json:"rows_deleted"`
+	DeletedRowsDetail  []ExpenseSyncResponseDetail `json:"deleted_rows_detail"`
+	InsertedRows       int                         `json:"inserted_rows"`
+	InsertedRowsDetail []ExpenseSyncResponseDetail `json:"inserted_rows_detail"`
+}
+type ExpenseSyncResponseDetail struct {
+	UUID        string  `json:"uuid"`
+	Description string  `json:"description"`
+	Amount      float64 `json:"amount"`
+	Type        string  `json:"type"`
+	DateTime    string  `json:"date_time"`
+}
+
 // formatAmount formatea montos en pesos argentinos
 func (e *BaseExpense) formatAmount(amount float64) string {
 	printer := message.NewPrinter(language.Spanish)
@@ -64,6 +78,18 @@ func (e *BaseExpense) getDB() (*gorm.DB, error) {
 	return db, nil
 }
 
+func (e *BaseExpense) formatDate(dateStr string) string {
+	// Try to parse as  ISO 8601: "2025-07-01T10:03:03"
+	t, err := time.Parse("2006-01-02T15:04:05", dateStr)
+	if err != nil {
+		// If fails, return original formar (assume is already ok)
+		return dateStr
+	}
+
+	// Return format "10/7/2025 17:16:31"
+	return t.Format("2/1/2006 15:04:05")
+}
+
 // NewExpenseController crea una nueva instancia del controlador
 func NewExpenseController() *ExpenseController {
 	return &ExpenseController{
@@ -77,6 +103,23 @@ func (ec *ExpenseController) GetExpenses(c *gin.Context) {
 	month := c.Query("month")
 	datePattern := fmt.Sprintf("%s-%s%%", year, month)
 
+	new_month_format := month
+
+	// -> '' is for bytes and runes  -> "" is for strings
+	//month[1:]
+	//Esto es slicing de strings. Devuelve una subcadena que comienza en la posición 1 hasta el final.
+	//Por ejemplo:
+	//"07"[1:] → "7"
+	//"11"[1:] → "1" (esto probablemente no lo querés si el mes es válido)
+
+	if month[0] == '0' {
+		new_month_format = month[1:]
+	} else {
+		new_month_format = month
+	}
+
+	datePatternNew := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
+
 	db, err := ec.getDB()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -89,10 +132,28 @@ func (ec *ExpenseController) GetExpenses(c *gin.Context) {
 		return
 	}
 
+	var expensesNewFormat []models.Expenses
+	if err := db.Where("date_time LIKE ?", datePatternNew).Find(&expensesNewFormat).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(expensesNewFormat) > 0 {
+		// the 3 dots ... means we are appending a slice
+		expenses = append(expenses, expensesNewFormat...)
+	}
+
 	formatted := make([]FormattedExpenseResponse, len(expenses))
 	for i, exp := range expenses {
 		formatted[i] = FormattedExpenseResponse{
-			Expenses:        exp,
+			Expenses: models.Expenses{
+				ID:          exp.ID,
+				UUID:        exp.UUID,
+				Description: exp.Description,
+				Amount:      exp.Amount,
+				Type:        exp.Type,
+				DateTime:    ec.formatDate(exp.DateTime), // acá el cambio
+			},
 			FormattedAmount: ec.formatAmount(exp.Amount),
 		}
 	}
@@ -163,6 +224,17 @@ func (ec *ExpenseController) SyncCurrentMonthExpenses(c *gin.Context) {
 	year := now.Format("2006")
 
 	datePattern := fmt.Sprintf("%s-%s%%", year, month)
+
+	new_month_format := month
+
+	if month[0] == '0' {
+		new_month_format = month[1:]
+	} else {
+		new_month_format = month
+	}
+
+	datePatternNew := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
+
 	spreadsheetID := config.GetEnv("GS_SPREADSHEET_ID")
 	sheetName := config.GetEnv("GS_SHEET_ID")
 
@@ -188,8 +260,6 @@ func (ec *ExpenseController) SyncCurrentMonthExpenses(c *gin.Context) {
 
 	uuidsFromSheet, err := ParseExpenseSheetDataToMap(data)
 
-	fmt.Println(uuidsFromSheet)
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -207,16 +277,28 @@ func (ec *ExpenseController) SyncCurrentMonthExpenses(c *gin.Context) {
 		return
 	}
 
+	var expensesNewFormat []models.Expenses
+	if err := db.Where("date_time LIKE ?", datePatternNew).Find(&expensesNewFormat).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(expensesNewFormat) > 0 {
+		// the 3 dots ... means we are appending a slice
+		expenses = append(expenses, expensesNewFormat...)
+	}
+
 	var expensesToDelete, expensesToInsert []models.Expenses
 
 	uuidsFromDatabase := make(map[string]models.Expenses) // Mapa clave: UUID (string), valor: ExpenseSheet
+	var expensesToDeleteResponse []ExpenseSyncResponseDetail
 
 	for _, row := range expenses {
 		uuidStr := toString(row.UUID) // Clave del mapa
 		uuidsFromDatabase[uuidStr] = models.Expenses{
 			ID:          row.ID,
 			UUID:        uuidStr,
-			DateTime:    toString(row.DateTime),
+			DateTime:    ec.formatDate(row.DateTime),
 			Description: toString(row.Description),
 			Amount:      parseAmount(row.Amount),
 			Type:        toString(row.Type),
@@ -225,20 +307,52 @@ func (ec *ExpenseController) SyncCurrentMonthExpenses(c *gin.Context) {
 		//Use current loop to validate the uuids
 		if _, exists := uuidsFromSheet[uuidStr]; !exists {
 			expensesToDelete = append(expensesToDelete, row)
+			expenseToDeleteResponse := ExpenseSyncResponseDetail{
+				UUID:        row.UUID,
+				Description: row.Description,
+				Amount:      row.Amount,
+				Type:        row.Type,
+				DateTime:    ec.formatDate(row.DateTime),
+			}
+			expensesToDeleteResponse = append(expensesToDeleteResponse, expenseToDeleteResponse)
 		}
 	}
+
+	var expensesToInsertResponse []ExpenseSyncResponseDetail
 
 	for _, row := range uuidsFromSheet {
 		if _, exists := uuidsFromDatabase[row.UUID]; !exists {
 			expensesToInsert = append(expensesToInsert, row)
+			expenseToInsertResponse := ExpenseSyncResponseDetail{
+				UUID:        row.UUID,
+				Description: row.Description,
+				Amount:      row.Amount,
+				Type:        row.Type,
+				DateTime:    row.DateTime,
+			}
+			expensesToInsertResponse = append(expensesToInsertResponse, expenseToInsertResponse)
 		}
 	}
 
-	fmt.Println("Rows to be deleted:")
-	fmt.Println(expensesToDelete)
-	fmt.Println("Rows to be inserted:")
-	fmt.Println(expensesToInsert)
-	c.JSON(http.StatusOK, "{status: ok}")
+	//Handle records insertions
+	if len(expensesToInsert) > 0 {
+		db.Create(&expensesToInsert)
+	}
+
+	//Handle records deletions
+	if len(expensesToDelete) > 0 {
+		db.Delete(&expensesToDelete)
+	}
+
+	// Create json response
+	response := ExpenseSyncResponse{
+		DeletedRows:        len(expensesToDeleteResponse),
+		DeletedRowsDetail:  expensesToDeleteResponse,
+		InsertedRows:       len(expensesToInsertResponse),
+		InsertedRowsDetail: expensesToInsertResponse,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // GetExpenses obtiene los gastos filtrados por fecha
