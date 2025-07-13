@@ -11,4 +11,6 @@ func SetupRoutes(r *gin.Engine) {
 	expenseCtrl := controllers.NewExpenseController()
 	r.GET("/expenses", expenseCtrl.GetExpenses)
 	r.GET("/expenses/summary", expenseCtrl.GetExpensesSummary)
+	r.GET("/expenses/sync/month", expenseCtrl.SyncCurrentMonthExpenses)
+	r.GET("/expenses/sync/historical", expenseCtrl.SyncExpensesHistorical)
 }

@@ -8,6 +8,11 @@ import (
 	"log"
 	"net/http"
 
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+
 	"github.com/gin-gonic/gin"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
@@ -104,24 +109,6 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 	datePattern := fmt.Sprintf("%s-%s%%", year, month)
 	period := fmt.Sprintf("%s-%s", month, year)
 
-	spreadsheetID := config.GetEnv("GS_SPREADSHEET_ID")
-	sheetName := config.GetEnv("GS_SHEET_ID")
-
-	// Crear instancia del lector
-	sheetsReader, err := services.NewGoogleSheetsReader(spreadsheetID)
-	if err != nil {
-		log.Fatalf("Error al crear lector de Google Sheets: %v", err)
-	}
-
-	// Opción 1: Leer datos y procesarlos manualmente
-	sheetRange := "Gastos!A:Z" // Lee todas las columnas
-	data, err := sheetsReader.ReadSheet(sheetName, sheetRange)
-	fmt.Println(data)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("Se leyeron %d filas (incluyendo encabezados)", len(data))
-
 	db, err := ec.getDB()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -165,4 +152,181 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+func (ec *ExpenseController) SyncCurrentMonthExpenses(c *gin.Context) {
+
+	now := time.Now()
+	//Format 01 for month (02 is for current day)
+	month := now.Format("01")
+	//Format "2006" for current year
+	year := now.Format("2006")
+
+	datePattern := fmt.Sprintf("%s-%s%%", year, month)
+	spreadsheetID := config.GetEnv("GS_SPREADSHEET_ID")
+	sheetName := config.GetEnv("GS_SHEET_ID")
+
+	// Create google sheet instance
+	sheetsReader, err := services.NewGoogleSheetsReader(spreadsheetID)
+	if err != nil {
+		log.Fatalf("Error trying to create a new google reader instance at SyncExpensesByMonth(): %v", err)
+	}
+
+	// Read data sheet
+	sheetRange := "GastosMesActual!A:Z" // Lee todas las columnas
+	data, err := sheetsReader.ReadSheet(sheetName, sheetRange)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(data) <= 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "spreadsheet is empty"})
+		return
+	}
+
+	uuidsFromSheet, err := ParseExpenseSheetDataToMap(data)
+
+	fmt.Println(uuidsFromSheet)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	db, err := ec.getDB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var expenses []models.Expenses
+	if err := db.Where("date_time LIKE ?", datePattern).Find(&expenses).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var expensesToDelete, expensesToInsert []models.Expenses
+
+	uuidsFromDatabase := make(map[string]models.Expenses) // Mapa clave: UUID (string), valor: ExpenseSheet
+
+	for _, row := range expenses {
+		uuidStr := toString(row.UUID) // Clave del mapa
+		uuidsFromDatabase[uuidStr] = models.Expenses{
+			ID:          row.ID,
+			UUID:        uuidStr,
+			DateTime:    toString(row.DateTime),
+			Description: toString(row.Description),
+			Amount:      parseAmount(row.Amount),
+			Type:        toString(row.Type),
+		}
+
+		//Use current loop to validate the uuids
+		if uuidFromSheet, exists := uuidsFromSheet[uuidStr]; !exists {
+			message := "row to be deleted from DB:" + uuidStr + " " + row.Description
+			fmt.Println(message)
+			expensesToDelete = append(expensesToDelete, uuidFromSheet)
+		}
+	}
+
+	for _, row := range uuidsFromSheet {
+		if uuidFromDatabase, exists := uuidsFromDatabase[row.UUID]; !exists {
+			message := "row to be inserted in DB: " + row.UUID + " " + row.Description
+			fmt.Println(message)
+			expensesToInsert = append(expensesToInsert, uuidFromDatabase)
+		}
+	}
+
+	c.JSON(http.StatusOK, "{status: ok}")
+}
+
+// GetExpenses obtiene los gastos filtrados por fecha
+func (ec *ExpenseController) SyncExpensesHistorical(c *gin.Context) {
+	year := c.Query("year")
+	month := c.Query("month")
+	datePattern := fmt.Sprintf("%s-%s%%", year, month)
+
+	db, err := ec.getDB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var expenses []models.Expenses
+	if err := db.Where("date_time LIKE ?", datePattern).Find(&expenses).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	formatted := make([]FormattedExpenseResponse, len(expenses))
+	for i, exp := range expenses {
+		formatted[i] = FormattedExpenseResponse{
+			Expenses:        exp,
+			FormattedAmount: ec.formatAmount(exp.Amount),
+		}
+	}
+
+	c.JSON(http.StatusOK, formatted)
+}
+
+func ParseExpenseSheetDataToMap(data [][]interface{}) (map[string]models.Expenses, error) {
+	const (
+		DateTime    int8 = 0
+		Amount      int8 = 1
+		Description int8 = 2
+		Type        int8 = 3
+		UUID        int8 = 4
+	)
+
+	expensesMap := make(map[string]models.Expenses) // Mapa clave: UUID (string), valor: ExpenseSheet
+
+	for i, row := range data {
+		if i == 0 { // Saltar encabezados
+			continue
+		}
+
+		uuidStr := toString(row[UUID]) // Clave del mapa
+		expensesMap[uuidStr] = models.Expenses{
+			UUID:        uuidStr,
+			DateTime:    toString(row[DateTime]),
+			Description: toString(row[Description]),
+			Amount:      parseAmount(row[Amount]),
+			Type:        toString(row[Type]),
+		}
+	}
+
+	return expensesMap, nil
+}
+
+func toString(v interface{}) string { return fmt.Sprintf("%v", v) }
+func parseAmount(amountStr interface{}) float64 {
+	str := fmt.Sprintf("%v", amountStr)
+
+	// Clean the string (remove $, commas, etc.)
+	var cleaned strings.Builder
+	hasDecimal := false
+	for _, r := range str {
+		switch {
+		case r == '-' && cleaned.Len() == 0:
+			cleaned.WriteRune(r)
+		case unicode.IsDigit(r):
+			cleaned.WriteRune(r)
+		case r == '.' && !hasDecimal:
+			cleaned.WriteRune(r)
+			hasDecimal = true
+		}
+	}
+
+	// If empty, return 0.0
+	if cleaned.Len() == 0 {
+		return 0.0
+	}
+
+	// Try parsing, return 0.0 if it fails
+	amount, err := strconv.ParseFloat(cleaned.String(), 64)
+	if err != nil {
+		return 0.0
+	}
+	return amount
 }

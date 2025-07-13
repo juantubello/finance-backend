@@ -50,12 +50,9 @@ func NewGoogleSheetsReader(spreadsheetID string) (*GoogleSheetsReader, error) {
 func (gsr *GoogleSheetsReader) ReadSheet(sheetName string, sheetRange string) ([][]interface{}, error) {
 
 	resp, err := gsr.service.Spreadsheets.Values.Get(gsr.spreadsheetID, sheetRange).Do()
+
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve data from sheet: %v", err)
-	}
-
-	if len(resp.Values) == 0 {
-		return nil, fmt.Errorf("no data found in sheet %s", sheetName)
 	}
 
 	return resp.Values, nil
