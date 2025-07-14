@@ -168,8 +168,25 @@ func (ec *ExpenseController) GetExpenses(c *gin.Context) {
 func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 	year := c.Query("year")
 	month := c.Query("month")
+
+	rawExclude := c.Query("exclude")
+	exclude := strings.Split(strings.Trim(rawExclude, "[]"), ",")
+	for i := range exclude {
+		exclude[i] = strings.TrimSpace(exclude[i])
+	}
+
 	datePattern := fmt.Sprintf("%s-%s%%", year, month)
 	period := fmt.Sprintf("%s-%s", month, year)
+
+	new_month_format := month
+
+	if month[0] == '0' {
+		new_month_format = month[1:]
+	} else {
+		new_month_format = month
+	}
+
+	datePattern2 := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
 
 	db, err := ec.getDB()
 	if err != nil {
@@ -177,7 +194,7 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 		return
 	}
 
-	// Consulta para obtener el resumen por tipo
+	// Response structs for db query
 	var typeSummaries []struct {
 		Type  string
 		Total float64
@@ -186,13 +203,15 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 	if err := db.Model(&models.Expenses{}).
 		Select("type, sum(amount) as total").
 		Where("date_time LIKE ?", datePattern).
+		Or("date_time LIKE ?", datePattern2).
+		Where("type NOT IN ?", exclude).
 		Group("type").
 		Find(&typeSummaries).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Calcular el total general
+	// Calculate total
 	var total float64
 	formattedTypeSummaries := make([]TypeSummary, len(typeSummaries))
 
@@ -333,20 +352,14 @@ func SyncData(parameters SyncExpenseData) (expensesInserted []models.Expenses, e
 
 	if !parameters.HistoricalSync {
 
-		if err := db.Where("date_time LIKE ?", parameters.DatePattern).Find(&expenses).Error; err != nil {
-			return nil, nil, fmt.Errorf("error trying to fetch expenses data ): %w", err.Error())
-		}
+		query := db.Distinct().Where("date_time LIKE ?", parameters.DatePattern)
 
 		if parameters.DatePattern2 != "" {
-			var expensesNewFormat []models.Expenses
-			if err := db.Where("date_time LIKE ?", parameters.DatePattern2).Find(&expensesNewFormat).Error; err != nil {
-				return nil, nil, fmt.Errorf("error trying to fetch expenses data with new pattern ): %w", err.Error())
-			}
+			query = query.Or("date_time LIKE ?", parameters.DatePattern2)
+		}
 
-			if len(expensesNewFormat) > 0 {
-				// the 3 dots ... means we are appending a slice
-				expenses = append(expenses, expensesNewFormat...)
-			}
+		if err := query.Find(&expenses).Error; err != nil {
+			return nil, nil, fmt.Errorf("error trying to fetch expenses data with patterns: %w", err)
 		}
 	}
 
