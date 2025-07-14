@@ -13,38 +13,18 @@ import (
 	"unicode"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/text/language"
-	"golang.org/x/text/message"
-	"gorm.io/gorm"
+
+	"finance-backend/controllers/transactions"
 )
 
-// BaseExpense contiene la lógica compartida
-type BaseExpense struct{}
-
-// ExpenseController implementa BaseExpense para poder utilizar sus metodos
 type ExpenseController struct {
-	*BaseExpense // Embedding para heredar métodos
+	*transactions.BaseController // Embed base
 }
 
-// Expenses response inherit Expenses model and add new json field for formatted amount
-type FormattedExpenseResponse struct {
-	models.Expenses
-	FormattedAmount string `json:"formatted_amount"`
-}
-
-// Summary types (items)
-type TypeSummary struct {
-	Type           string  `json:"type"`
-	Total          float64 `json:"total"`
-	FormattedTotal string  `json:"formatted_total"`
-}
-
-// Summary overview (header)
-type ExpensesSummaryResponse struct {
-	Total          float64       `json:"total"`
-	FormattedTotal string        `json:"formatted_total"`
-	Period         string        `json:"period"`
-	TypesSummary   []TypeSummary `json:"types_summary"`
+func NewExpenseController() *ExpenseController {
+	return &ExpenseController{
+		BaseController: &transactions.BaseController{},
+	}
 }
 
 type ExpenseSyncResponse struct {
@@ -63,43 +43,15 @@ type SyncExpenseData struct {
 	SheetRange     string
 }
 
-// formatAmount formatea montos en pesos argentinos
-func (e *BaseExpense) formatAmount(amount float64) string {
-	printer := message.NewPrinter(language.Spanish)
-	return printer.Sprintf("$%.2f", amount)
-}
-
-// getDB obtiene la conexión a la base de datos
-func (e *BaseExpense) getDB() (*gorm.DB, error) {
-	transactionsTable := config.GetEnv("TRANSACTION_TABLE")
-	db, ok := config.DBs[transactionsTable]
-	if !ok {
-		return nil, fmt.Errorf("database not available")
-	}
-	return db, nil
-}
-
-func (e *BaseExpense) formatDate(dateStr string) string {
-	// Try to parse as  ISO 8601: "2025-07-01T10:03:03"
-	t, err := time.Parse("2006-01-02T15:04:05", dateStr)
-	if err != nil {
-		// If fails, return original formar (assume is already ok)
-		return dateStr
-	}
-
-	// Return format "10/7/2025 17:16:31"
-	return t.Format("2/1/2006 15:04:05")
-}
-
-// NewExpenseController crea una nueva instancia del controlador
-func NewExpenseController() *ExpenseController {
-	return &ExpenseController{
-		BaseExpense: &BaseExpense{},
-	}
-}
-
 // GetExpenses obtiene los gastos filtrados por fecha
 func (ec *ExpenseController) GetExpenses(c *gin.Context) {
+
+	// Expenses response inherit Expenses model and add new json field for formatted amount
+	type FormattedExpenseResponse struct {
+		models.Expenses
+		FormattedAmount string `json:"formatted_amount"`
+	}
+
 	year := c.Query("year")
 	month := c.Query("month")
 	datePattern := fmt.Sprintf("%s-%s%%", year, month)
@@ -121,7 +73,7 @@ func (ec *ExpenseController) GetExpenses(c *gin.Context) {
 
 	datePatternNew := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
 
-	db, err := ec.getDB()
+	db, err := ec.GetDB()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -153,19 +105,32 @@ func (ec *ExpenseController) GetExpenses(c *gin.Context) {
 				Description: exp.Description,
 				Amount:      exp.Amount,
 				Type:        exp.Type,
-				DateTime:    ec.formatDate(exp.DateTime), // acá el cambio
+				DateTime:    ec.FormatDate(exp.DateTime), // acá el cambio
 			},
-			FormattedAmount: ec.formatAmount(exp.Amount),
+			FormattedAmount: ec.FormatAmount(exp.Amount),
 		}
 	}
 
 	c.JSON(http.StatusOK, formatted)
 }
 
-// GetExpensesSummary obtiene el resumen de gastos por categoría,
-// hereda de ExpenseController para obtener los metodos base de obtener
-// base de datos y formateo a pesos
 func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
+
+	// Summary types (items)
+	type TypeSummary struct {
+		Type           string  `json:"type"`
+		Total          float64 `json:"total"`
+		FormattedTotal string  `json:"formatted_total"`
+	}
+
+	// Summary overview (header)
+	type ExpensesSummaryResponse struct {
+		Total          float64       `json:"total"`
+		FormattedTotal string        `json:"formatted_total"`
+		Period         string        `json:"period"`
+		TypesSummary   []TypeSummary `json:"types_summary"`
+	}
+
 	year := c.Query("year")
 	month := c.Query("month")
 
@@ -197,7 +162,7 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 
 	datePattern2 := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
 
-	db, err := ec.getDB()
+	db, err := ec.GetDB()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -229,14 +194,14 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 		formattedTypeSummaries[i] = TypeSummary{
 			Type:           ts.Type,
 			Total:          ts.Total,
-			FormattedTotal: ec.formatAmount(ts.Total),
+			FormattedTotal: ec.FormatAmount(ts.Total),
 		}
 	}
 
 	// Construir la respuesta final
 	response := ExpensesSummaryResponse{
 		Total:          total,
-		FormattedTotal: ec.formatAmount(total),
+		FormattedTotal: ec.FormatAmount(total),
 		Period:         period,
 		TypesSummary:   formattedTypeSummaries,
 	}
@@ -347,12 +312,12 @@ func SyncData(parameters SyncExpenseData) (expensesInserted []models.Expenses, e
 		return nil, nil, fmt.Errorf("no data found on spreadsheet at SyncData() ReadSheet(): %w", err)
 	}
 
-	uuidsFromSheet, err := ExpenseSheetDataToMap(data)
+	uuidsFromSheet, err := expenseSheetDataToMap(data)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error trying to parse sheet data to map at ExpenseSheetDataToMap ): %w", err)
 	}
 
-	db, err := ec.getDB()
+	db, err := ec.GetDB()
 	if err != nil {
 		return nil, nil, fmt.Errorf("error trying to connect to database at getDB() ): %w", err.Error())
 	}
@@ -378,13 +343,13 @@ func SyncData(parameters SyncExpenseData) (expensesInserted []models.Expenses, e
 		}
 	}
 
-	uuidsFromDataBase, err := ExpenseDatabaseDataToMap(expenses)
+	uuidsFromDataBase, err := expenseDatabaseDataToMap(expenses)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error trying to parse database records to map ): %w", err.Error())
 	}
 
-	expensesToInsert := GetExpensesToInsert(uuidsFromSheet, uuidsFromDataBase)
-	expensesToDelete := GetExpensesToDelete(uuidsFromSheet, uuidsFromDataBase)
+	expensesToInsert := getExpensesToInsert(uuidsFromSheet, uuidsFromDataBase)
+	expensesToDelete := getExpensesToDelete(uuidsFromSheet, uuidsFromDataBase)
 
 	//Handle records insertions
 	if len(expensesToInsert) > 0 {
@@ -399,7 +364,7 @@ func SyncData(parameters SyncExpenseData) (expensesInserted []models.Expenses, e
 	return expensesToInsert, expensesToDelete, nil
 }
 
-func ExpenseSheetDataToMap(data [][]interface{}) (map[string]models.Expenses, error) {
+func expenseSheetDataToMap(data [][]interface{}) (map[string]models.Expenses, error) {
 	const (
 		DateTime    int8 = 0
 		Amount      int8 = 1
@@ -428,7 +393,7 @@ func ExpenseSheetDataToMap(data [][]interface{}) (map[string]models.Expenses, er
 	return expensesMap, nil
 }
 
-func GetExpensesToInsert(sheetData map[string]models.Expenses, databaseData map[string]models.Expenses) (expensesToInsert []models.Expenses) {
+func getExpensesToInsert(sheetData map[string]models.Expenses, databaseData map[string]models.Expenses) (expensesToInsert []models.Expenses) {
 	for _, row := range sheetData {
 		if _, exists := databaseData[row.UUID]; !exists {
 			expensesToInsert = append(expensesToInsert, row)
@@ -437,7 +402,7 @@ func GetExpensesToInsert(sheetData map[string]models.Expenses, databaseData map[
 	return expensesToInsert
 }
 
-func GetExpensesToDelete(sheetData map[string]models.Expenses, databaseData map[string]models.Expenses) (expensesToDelete []models.Expenses) {
+func getExpensesToDelete(sheetData map[string]models.Expenses, databaseData map[string]models.Expenses) (expensesToDelete []models.Expenses) {
 	for _, row := range databaseData {
 		if _, exists := sheetData[row.UUID]; !exists {
 			expensesToDelete = append(expensesToDelete, row)
@@ -446,7 +411,7 @@ func GetExpensesToDelete(sheetData map[string]models.Expenses, databaseData map[
 	return expensesToDelete
 }
 
-func ExpenseDatabaseDataToMap(data []models.Expenses) (map[string]models.Expenses, error) {
+func expenseDatabaseDataToMap(data []models.Expenses) (map[string]models.Expenses, error) {
 
 	expensesMap := make(map[string]models.Expenses, len(data)) // Mapa clave: UUID (string), valor: ExpenseSheet
 
@@ -466,6 +431,7 @@ func ExpenseDatabaseDataToMap(data []models.Expenses) (map[string]models.Expense
 }
 
 func toString(v interface{}) string { return fmt.Sprintf("%v", v) }
+
 func parseAmount(amountStr interface{}) float64 {
 	str := fmt.Sprintf("%v", amountStr)
 
