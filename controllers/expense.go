@@ -5,7 +5,6 @@ import (
 	"finance-backend/models"
 	"finance-backend/services"
 	"fmt"
-	"log"
 	"net/http"
 
 	"strconv"
@@ -49,17 +48,19 @@ type ExpensesSummaryResponse struct {
 }
 
 type ExpenseSyncResponse struct {
-	DeletedRows        int                         `json:"rows_deleted"`
-	DeletedRowsDetail  []ExpenseSyncResponseDetail `json:"deleted_rows_detail"`
-	InsertedRows       int                         `json:"inserted_rows"`
-	InsertedRowsDetail []ExpenseSyncResponseDetail `json:"inserted_rows_detail"`
+	DeletedRows        int               `json:"rows_deleted"`
+	DeletedRowsDetail  []models.Expenses `json:"deleted_rows_detail"`
+	InsertedRows       int               `json:"inserted_rows"`
+	InsertedRowsDetail []models.Expenses `json:"inserted_rows_detail"`
 }
-type ExpenseSyncResponseDetail struct {
-	UUID        string  `json:"uuid"`
-	Description string  `json:"description"`
-	Amount      float64 `json:"amount"`
-	Type        string  `json:"type"`
-	DateTime    string  `json:"date_time"`
+
+type SyncExpenseData struct {
+	HistoricalSync bool
+	DatePattern    string
+	DatePattern2   string
+	SheetId        string
+	SheetName      string
+	SheetRange     string
 }
 
 // formatAmount formatea montos en pesos argentinos
@@ -233,106 +234,107 @@ func (ec *ExpenseController) SyncCurrentMonthExpenses(c *gin.Context) {
 		new_month_format = month
 	}
 
-	datePatternNew := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
+	datePattern2 := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
 
 	spreadsheetID := config.GetEnv("GS_SPREADSHEET_ID")
 	sheetName := config.GetEnv("GS_SHEET_ID")
+	sheetRange := "GastosMesActual!A:Z" // Lee todas las columnas
+
+	syncParameters := SyncExpenseData{
+		HistoricalSync: false,
+		DatePattern:    datePattern,
+		DatePattern2:   datePattern2,
+		SheetId:        spreadsheetID,
+		SheetName:      sheetName,
+		SheetRange:     sheetRange,
+	}
+
+	expensesInserted, expensesDeleted, err := SyncData(syncParameters)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Create json response
+	response := ExpenseSyncResponse{
+		DeletedRows:        len(expensesDeleted),
+		DeletedRowsDetail:  expensesDeleted,
+		InsertedRows:       len(expensesInserted),
+		InsertedRowsDetail: expensesInserted,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (ec *ExpenseController) SyncExpensesHistorical(c *gin.Context) {
+
+}
+
+func SyncData(parameters SyncExpenseData) (expensesInserted []models.Expenses, expensesDeleted []models.Expenses, Error error) {
+
+	ec := NewExpenseController()
 
 	// Create google sheet instance
-	sheetsReader, err := services.NewGoogleSheetsReader(spreadsheetID)
+	sheetsReader, err := services.NewGoogleSheetsReader(parameters.SheetId)
 	if err != nil {
-		log.Fatalf("Error trying to create a new google reader instance at SyncExpensesByMonth(): %v", err)
+		return nil, nil, fmt.Errorf("error trying to create a new google reader instance at SyncExpensesByMonth(): %w", err)
 	}
 
 	// Read data sheet
-	sheetRange := "GastosMesActual!A:Z" // Lee todas las columnas
-	data, err := sheetsReader.ReadSheet(sheetName, sheetRange)
+	data, err := sheetsReader.ReadSheet(parameters.SheetName, parameters.SheetRange)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		return nil, nil, fmt.Errorf("error at SyncData() on ReadSheet: %w", err)
 	}
-
 	if len(data) <= 0 {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "spreadsheet is empty"})
-		return
+		return nil, nil, fmt.Errorf("no data found on spreadsheet at SyncData() ReadSheet(): %w", err)
 	}
 
-	uuidsFromSheet, err := ParseExpenseSheetDataToMap(data)
-
+	uuidsFromSheet, err := ExpenseSheetDataToMap(data)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		return nil, nil, fmt.Errorf("error trying to parse sheet data to map at ExpenseSheetDataToMap ): %w", err)
 	}
 
 	db, err := ec.getDB()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		return nil, nil, fmt.Errorf("error trying to connect to database at getDB() ): %w", err.Error())
 	}
 
 	var expenses []models.Expenses
-	if err := db.Where("date_time LIKE ?", datePattern).Find(&expenses).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
 
-	var expensesNewFormat []models.Expenses
-	if err := db.Where("date_time LIKE ?", datePatternNew).Find(&expensesNewFormat).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	if !parameters.HistoricalSync {
 
-	if len(expensesNewFormat) > 0 {
-		// the 3 dots ... means we are appending a slice
-		expenses = append(expenses, expensesNewFormat...)
-	}
-
-	var expensesToDelete, expensesToInsert []models.Expenses
-
-	uuidsFromDatabase := make(map[string]models.Expenses) // Mapa clave: UUID (string), valor: ExpenseSheet
-	var expensesToDeleteResponse []ExpenseSyncResponseDetail
-
-	for _, row := range expenses {
-		uuidStr := toString(row.UUID) // Clave del mapa
-		uuidsFromDatabase[uuidStr] = models.Expenses{
-			ID:          row.ID,
-			UUID:        uuidStr,
-			DateTime:    ec.formatDate(row.DateTime),
-			Description: toString(row.Description),
-			Amount:      parseAmount(row.Amount),
-			Type:        toString(row.Type),
+		if err := db.Where("date_time LIKE ?", parameters.DatePattern).Find(&expenses).Error; err != nil {
+			return nil, nil, fmt.Errorf("error trying to fetch expenses data ): %w", err.Error())
 		}
 
-		//Use current loop to validate the uuids
-		if _, exists := uuidsFromSheet[uuidStr]; !exists {
-			expensesToDelete = append(expensesToDelete, row)
-			expenseToDeleteResponse := ExpenseSyncResponseDetail{
-				UUID:        row.UUID,
-				Description: row.Description,
-				Amount:      row.Amount,
-				Type:        row.Type,
-				DateTime:    ec.formatDate(row.DateTime),
+		if parameters.DatePattern2 != "" {
+			var expensesNewFormat []models.Expenses
+			if err := db.Where("date_time LIKE ?", parameters.DatePattern2).Find(&expensesNewFormat).Error; err != nil {
+				return nil, nil, fmt.Errorf("error trying to fetch expenses data with new pattern ): %w", err.Error())
 			}
-			expensesToDeleteResponse = append(expensesToDeleteResponse, expenseToDeleteResponse)
-		}
-	}
 
-	var expensesToInsertResponse []ExpenseSyncResponseDetail
-
-	for _, row := range uuidsFromSheet {
-		if _, exists := uuidsFromDatabase[row.UUID]; !exists {
-			expensesToInsert = append(expensesToInsert, row)
-			expenseToInsertResponse := ExpenseSyncResponseDetail{
-				UUID:        row.UUID,
-				Description: row.Description,
-				Amount:      row.Amount,
-				Type:        row.Type,
-				DateTime:    row.DateTime,
+			if len(expensesNewFormat) > 0 {
+				// the 3 dots ... means we are appending a slice
+				expenses = append(expenses, expensesNewFormat...)
 			}
-			expensesToInsertResponse = append(expensesToInsertResponse, expenseToInsertResponse)
 		}
 	}
+
+	if parameters.HistoricalSync {
+		if err := db.Find(&expenses).Error; err != nil {
+			return nil, nil, fmt.Errorf("error trying to fetch all expenses ): %w", err.Error())
+		}
+	}
+
+	uuidsFromDataBase, err := ExpenseDatabaseDataToMap(expenses)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error trying to parse database records to map ): %w", err.Error())
+	}
+
+	expensesToInsert := GetExpensesToInsert(uuidsFromSheet, uuidsFromDataBase)
+	expensesToDelete := GetExpensesToDelete(uuidsFromSheet, uuidsFromDataBase)
 
 	//Handle records insertions
 	if len(expensesToInsert) > 0 {
@@ -344,47 +346,10 @@ func (ec *ExpenseController) SyncCurrentMonthExpenses(c *gin.Context) {
 		db.Delete(&expensesToDelete)
 	}
 
-	// Create json response
-	response := ExpenseSyncResponse{
-		DeletedRows:        len(expensesToDeleteResponse),
-		DeletedRowsDetail:  expensesToDeleteResponse,
-		InsertedRows:       len(expensesToInsertResponse),
-		InsertedRowsDetail: expensesToInsertResponse,
-	}
-
-	c.JSON(http.StatusOK, response)
+	return expensesToInsert, expensesToDelete, nil
 }
 
-// GetExpenses obtiene los gastos filtrados por fecha
-func (ec *ExpenseController) SyncExpensesHistorical(c *gin.Context) {
-	year := c.Query("year")
-	month := c.Query("month")
-	datePattern := fmt.Sprintf("%s-%s%%", year, month)
-
-	db, err := ec.getDB()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	var expenses []models.Expenses
-	if err := db.Where("date_time LIKE ?", datePattern).Find(&expenses).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	formatted := make([]FormattedExpenseResponse, len(expenses))
-	for i, exp := range expenses {
-		formatted[i] = FormattedExpenseResponse{
-			Expenses:        exp,
-			FormattedAmount: ec.formatAmount(exp.Amount),
-		}
-	}
-
-	c.JSON(http.StatusOK, formatted)
-}
-
-func ParseExpenseSheetDataToMap(data [][]interface{}) (map[string]models.Expenses, error) {
+func ExpenseSheetDataToMap(data [][]interface{}) (map[string]models.Expenses, error) {
 	const (
 		DateTime    int8 = 0
 		Amount      int8 = 1
@@ -396,10 +361,10 @@ func ParseExpenseSheetDataToMap(data [][]interface{}) (map[string]models.Expense
 	expensesMap := make(map[string]models.Expenses) // Mapa clave: UUID (string), valor: ExpenseSheet
 
 	for i, row := range data {
+
 		if i == 0 { // Saltar encabezados
 			continue
 		}
-
 		uuidStr := toString(row[UUID]) // Clave del mapa
 		expensesMap[uuidStr] = models.Expenses{
 			UUID:        uuidStr,
@@ -407,6 +372,42 @@ func ParseExpenseSheetDataToMap(data [][]interface{}) (map[string]models.Expense
 			Description: toString(row[Description]),
 			Amount:      parseAmount(row[Amount]),
 			Type:        toString(row[Type]),
+		}
+	}
+
+	return expensesMap, nil
+}
+
+func GetExpensesToInsert(sheetData map[string]models.Expenses, databaseData map[string]models.Expenses) (expensesToInsert []models.Expenses) {
+	for _, row := range sheetData {
+		if _, exists := databaseData[row.UUID]; !exists {
+			expensesToInsert = append(expensesToInsert, row)
+		}
+	}
+	return expensesToInsert
+}
+
+func GetExpensesToDelete(sheetData map[string]models.Expenses, databaseData map[string]models.Expenses) (expensesToDelete []models.Expenses) {
+	for _, row := range databaseData {
+		if _, exists := sheetData[row.UUID]; !exists {
+			expensesToDelete = append(expensesToDelete, row)
+		}
+	}
+	return expensesToDelete
+}
+
+func ExpenseDatabaseDataToMap(data []models.Expenses) (map[string]models.Expenses, error) {
+
+	expensesMap := make(map[string]models.Expenses, len(data)) // Mapa clave: UUID (string), valor: ExpenseSheet
+
+	for _, row := range data {
+		uuidStr := toString(row.UUID) // Clave del mapa
+		expensesMap[uuidStr] = models.Expenses{
+			UUID:        uuidStr,
+			DateTime:    toString(row.DateTime),
+			Description: toString(row.Description),
+			Amount:      parseAmount(row.Amount),
+			Type:        toString(row.Type),
 		}
 	}
 
