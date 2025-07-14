@@ -169,6 +169,15 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 	year := c.Query("year")
 	month := c.Query("month")
 
+	// The following block converts the "exclude" parameter into a slice of strings usable by GORM.
+	// This allows filtering excluded types coming in the URL as a single string, for example:
+	// ?exclude=[Rent and utilities, Other]
+	// 1. Retrieves the full string using c.Query("exclude").
+	// 2. Removes the brackets "[" and "]" using strings.Trim(..., "[]").
+	// 3. Splits the string by commas using strings.Split(..., ",") to separate each type.
+	// 4. Trims extra spaces with strings.TrimSpace(...) on each element.
+	// The final result is []string{"Rent and utilities", "Other"}, ready to use in a WHERE NOT IN clause.
+
 	rawExclude := c.Query("exclude")
 	exclude := strings.Split(strings.Trim(rawExclude, "[]"), ",")
 	for i := range exclude {
