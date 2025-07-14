@@ -12,7 +12,7 @@ import (
 
 type BaseController struct{}
 
-func (b *BaseController) GetDB() (*gorm.DB, error) {
+func (b *BaseController) GetTransactionsDB() (*gorm.DB, error) {
 	transactionsTable := config.GetEnv("TRANSACTION_TABLE")
 	db, ok := config.DBs[transactionsTable]
 	if !ok {

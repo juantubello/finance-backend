@@ -1,4 +1,4 @@
-package controllers
+package expenses
 
 import (
 	"finance-backend/config"
@@ -18,7 +18,7 @@ import (
 )
 
 type ExpenseController struct {
-	*transactions.BaseController // Embed base
+	*transactions.BaseController // Embed base to share base methods
 }
 
 func NewExpenseController() *ExpenseController {
@@ -73,7 +73,7 @@ func (ec *ExpenseController) GetExpenses(c *gin.Context) {
 
 	datePatternNew := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
 
-	db, err := ec.GetDB()
+	db, err := ec.GetTransactionsDB()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -162,7 +162,7 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 
 	datePattern2 := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
 
-	db, err := ec.GetDB()
+	db, err := ec.GetTransactionsDB()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -317,7 +317,7 @@ func SyncData(parameters SyncExpenseData) (expensesInserted []models.Expenses, e
 		return nil, nil, fmt.Errorf("error trying to parse sheet data to map at ExpenseSheetDataToMap ): %w", err)
 	}
 
-	db, err := ec.GetDB()
+	db, err := ec.GetTransactionsDB()
 	if err != nil {
 		return nil, nil, fmt.Errorf("error trying to connect to database at getDB() ): %w", err.Error())
 	}
