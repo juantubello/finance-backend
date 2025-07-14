@@ -269,6 +269,34 @@ func (ec *ExpenseController) SyncCurrentMonthExpenses(c *gin.Context) {
 
 func (ec *ExpenseController) SyncExpensesHistorical(c *gin.Context) {
 
+	spreadsheetID := config.GetEnv("GS_SPREADSHEET_ID")
+	sheetName := config.GetEnv("GS_SHEET_ID")
+	sheetRange := "Gastos!A:Z" // Lee todas las columnas
+
+	syncParameters := SyncExpenseData{
+		HistoricalSync: true,
+		SheetId:        spreadsheetID,
+		SheetName:      sheetName,
+		SheetRange:     sheetRange,
+	}
+
+	expensesInserted, expensesDeleted, err := SyncData(syncParameters)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Create json response
+	response := ExpenseSyncResponse{
+		DeletedRows:        len(expensesDeleted),
+		DeletedRowsDetail:  expensesDeleted,
+		InsertedRows:       len(expensesInserted),
+		InsertedRowsDetail: expensesInserted,
+	}
+
+	c.JSON(http.StatusOK, response)
+
 }
 
 func SyncData(parameters SyncExpenseData) (expensesInserted []models.Expenses, expensesDeleted []models.Expenses, Error error) {
@@ -341,7 +369,7 @@ func SyncData(parameters SyncExpenseData) (expensesInserted []models.Expenses, e
 		db.Create(&expensesToInsert)
 	}
 
-	//Handle records deletions
+	//Handle records deletions, it will delete by primary key ID
 	if len(expensesToDelete) > 0 {
 		db.Delete(&expensesToDelete)
 	}
@@ -403,6 +431,7 @@ func ExpenseDatabaseDataToMap(data []models.Expenses) (map[string]models.Expense
 	for _, row := range data {
 		uuidStr := toString(row.UUID) // Clave del mapa
 		expensesMap[uuidStr] = models.Expenses{
+			ID:          row.ID,
 			UUID:        uuidStr,
 			DateTime:    toString(row.DateTime),
 			Description: toString(row.Description),
