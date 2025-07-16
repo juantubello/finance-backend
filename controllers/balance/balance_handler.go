@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"finance-backend/controllers/transactions"
+	transactions "finance-backend/controllers/base"
 )
 
 type BalanceController struct {
