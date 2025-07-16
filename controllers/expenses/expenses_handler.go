@@ -306,20 +306,20 @@ func SyncData(parameters SyncExpenseData) (expensesInserted []models.Expenses, e
 	data, err := sheetsReader.ReadSheet(parameters.SheetName, parameters.SheetRange)
 
 	if err != nil {
-		return nil, nil, fmt.Errorf("error at SyncData() on ReadSheet: %w", err)
+		return nil, nil, fmt.Errorf("error at SyncData() on ReadSheet")
 	}
 	if len(data) <= 0 {
-		return nil, nil, fmt.Errorf("no data found on spreadsheet at SyncData() ReadSheet(): %w", err)
+		return nil, nil, fmt.Errorf("no data found on spreadsheet at SyncData() ReadSheet()")
 	}
 
 	uuidsFromSheet, err := expenseSheetDataToMap(data)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error trying to parse sheet data to map at ExpenseSheetDataToMap ): %w", err)
+		return nil, nil, fmt.Errorf("error trying to parse sheet data to map at ExpenseSheetDataToMap )")
 	}
 
 	db, err := ec.GetTransactionsDB()
 	if err != nil {
-		return nil, nil, fmt.Errorf("error trying to connect to database at getDB() ): %w", err.Error())
+		return nil, nil, fmt.Errorf("error trying to connect to database at getDB()")
 	}
 
 	var expenses []models.Expenses
@@ -333,19 +333,19 @@ func SyncData(parameters SyncExpenseData) (expensesInserted []models.Expenses, e
 		}
 
 		if err := query.Find(&expenses).Error; err != nil {
-			return nil, nil, fmt.Errorf("error trying to fetch expenses data with patterns: %w", err)
+			return nil, nil, fmt.Errorf("error trying to fetch expenses data with patterns")
 		}
 	}
 
 	if parameters.HistoricalSync {
 		if err := db.Find(&expenses).Error; err != nil {
-			return nil, nil, fmt.Errorf("error trying to fetch all expenses ): %w", err.Error())
+			return nil, nil, fmt.Errorf("error trying to fetch all expenses")
 		}
 	}
 
 	uuidsFromDataBase, err := expenseDatabaseDataToMap(expenses)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error trying to parse database records to map ): %w", err.Error())
+		return nil, nil, fmt.Errorf("error trying to parse database records to map")
 	}
 
 	expensesToInsert := getExpensesToInsert(uuidsFromSheet, uuidsFromDataBase)
