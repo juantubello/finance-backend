@@ -52,6 +52,16 @@ func (ec *IncomeController) GetIncomes(c *gin.Context) {
 		FormattedAmount string `json:"formatted_amount"`
 	}
 
+	type incomesResponse struct {
+		IncomeTotal          float64                    `json:"income_total"`
+		IncomeTotalFormatted string                     `json:"income_total_formatted"`
+		IncomesDetail        []FormattedIncomesResponse `json:"incomes_details"`
+	}
+
+	var totalIncome []struct {
+		Total float64
+	}
+
 	year := c.Query("year")
 	month := c.Query("month")
 	datePattern := fmt.Sprintf("%s-%s%%", year, month)
@@ -106,7 +116,20 @@ func (ec *IncomeController) GetIncomes(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, formatted)
+	//Calculate total
+	//Utilizing query again, because it already has the previous where / distintc etc filters applied, just changing Select condition
+	if err := query.Select("sum(amount) as total").Find(&totalIncome).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	response := incomesResponse{
+		IncomeTotal:          totalIncome[0].Total,
+		IncomeTotalFormatted: ec.FormatAmount(totalIncome[0].Total),
+		IncomesDetail:        formatted,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 func (ec *IncomeController) SyncCurrentMonthIncomes(c *gin.Context) {
