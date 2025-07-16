@@ -56,10 +56,10 @@ func main() {
 		fmt.Println(msg)
 	}
 
-	transactionsPath := config.GetEnv("EXPENSES_DB")
+	transactionsPath := config.GetEnv("TRANSACTIONS_DB_PATH")
 	config.ConnectDB("transactions", transactionsPath)
 
-	cardsPath := config.GetEnv("CARDS_DB")
+	cardsPath := config.GetEnv("CARDS_DB_PATH")
 	config.ConnectDB("cards", cardsPath)
 
 	msg, err = MessageFormater(Yellow, "setting routes...")

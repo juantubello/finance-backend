@@ -10,11 +10,21 @@ import (
 	"gorm.io/gorm"
 )
 
+/*
+BaseController provides shared transaction functionality:
+- DB connection management
+- Consistent amount/date formatting
+Embed this in specific controllers (expenses/incomes) to avoid duplication.
+*/
 type BaseController struct{}
 
-func (b *BaseController) GetTransactionsDB() (*gorm.DB, error) {
-	transactionsTable := config.GetEnv("TRANSACTION_TABLE")
-	db, ok := config.DBs[transactionsTable]
+/*
+GetDatabaseInstance returns an instance of a database
+- database string, parameter checks name on .env file
+*/
+func (b *BaseController) GetDatabaseInstance(database string) (*gorm.DB, error) {
+	databaseName := config.GetEnv(database)
+	db, ok := config.DBs[databaseName]
 	if !ok {
 		return nil, fmt.Errorf("database not available")
 	}

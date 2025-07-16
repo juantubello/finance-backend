@@ -83,7 +83,7 @@ func (ec *IncomeController) GetIncomes(c *gin.Context) {
 
 	datePattern2 := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
 
-	db, err := ec.GetTransactionsDB()
+	db, err := ec.GetDatabaseInstance("TRANSACTION_DB")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -240,7 +240,7 @@ func SyncData(parameters SyncIncomeData) (incomesInserted []models.Incomes, inco
 		return nil, nil, fmt.Errorf("error trying to parse sheet data to map at ExpenseSheetDataToMap ): %w", err)
 	}
 
-	db, err := ec.GetTransactionsDB()
+	db, err := ec.GetDatabaseInstance("TRANSACTION_DB")
 	if err != nil {
 		return nil, nil, fmt.Errorf("error trying to connect to database at getDB() ): %w", err.Error())
 	}

@@ -59,7 +59,7 @@ func (ec *BalanceController) GetBalance(c *gin.Context) {
 	var incomes []models.Incomes
 	var expenses []models.Expenses
 
-	db, err := ec.GetTransactionsDB()
+	db, err := ec.GetDatabaseInstance("TRANSACTION_DB")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
