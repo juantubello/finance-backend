@@ -71,7 +71,7 @@ func (ec *IncomeController) GetIncomes(c *gin.Context) {
 		new_month_format = month
 	}
 
-	datePatternNew := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
+	datePattern2 := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
 
 	db, err := ec.GetTransactionsDB()
 	if err != nil {
@@ -80,20 +80,15 @@ func (ec *IncomeController) GetIncomes(c *gin.Context) {
 	}
 
 	var incomes []models.Incomes
-	if err := db.Where("date_time LIKE ?", datePattern).Find(&incomes).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+
+	query := db.Distinct().Where("date_time LIKE ?", datePattern)
+	if datePattern2 != "" {
+		query = query.Or("date_time LIKE ?", datePattern2)
 	}
 
-	var incomesNewFormat []models.Incomes
-	if err := db.Where("date_time LIKE ?", datePatternNew).Find(&incomesNewFormat).Error; err != nil {
+	if err := query.Find(&incomes).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
-	}
-
-	if len(incomesNewFormat) > 0 {
-		// the 3 dots ... means we are appending a slice
-		incomes = append(incomes, incomesNewFormat...)
 	}
 
 	formatted := make([]FormattedIncomesResponse, len(incomes))
