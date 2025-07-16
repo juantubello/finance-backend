@@ -242,7 +242,7 @@ func SyncData(parameters SyncIncomeData) (incomesInserted []models.Incomes, inco
 
 	db, err := ec.GetDatabaseInstance("TRANSACTION_DB")
 	if err != nil {
-		return nil, nil, fmt.Errorf("error trying to connect to database at getDB() ): %w", err.Error())
+		return nil, nil, fmt.Errorf("error trying to connect to database at getDB()")
 	}
 
 	var incomes []models.Incomes
@@ -262,13 +262,13 @@ func SyncData(parameters SyncIncomeData) (incomesInserted []models.Incomes, inco
 
 	if parameters.HistoricalSync {
 		if err := db.Find(&incomes).Error; err != nil {
-			return nil, nil, fmt.Errorf("error trying to fetch all expenses ): %w", err.Error())
+			return nil, nil, fmt.Errorf("error trying to fetch all expenses")
 		}
 	}
 
 	uuidsFromDataBase, err := incomesDatabaseDataToMap(incomes)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error trying to parse database records to map ): %w", err.Error())
+		return nil, nil, fmt.Errorf("error trying to parse database records to map")
 	}
 
 	incomesToInsert := getIncomesToInsert(uuidsFromSheet, uuidsFromDataBase)

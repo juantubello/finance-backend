@@ -57,10 +57,20 @@ func main() {
 	}
 
 	transactionsPath := config.GetEnv("TRANSACTIONS_DB_PATH")
-	config.ConnectDB("transactions", transactionsPath)
+	_, err = config.ConnectDB("transactions", transactionsPath)
+
+	if err != nil {
+		fmt.Println(MessageFormater(Red, "Error trying to connect to transactions table"))
+		log.Fatal(err)
+	}
 
 	cardsPath := config.GetEnv("CARDS_DB_PATH")
-	config.ConnectDB("cards", cardsPath)
+	_, err = config.ConnectDB("cards", cardsPath)
+
+	if err != nil {
+		fmt.Println(MessageFormater(Red, "Error trying to connect to cards table"))
+		log.Fatal(err)
+	}
 
 	msg, err = MessageFormater(Yellow, "setting routes...")
 	if err != nil {
