@@ -43,3 +43,9 @@ func (b *BaseController) FormatDate(dateStr string) string {
 	}
 	return t.Format("2/1/2006 15:04:05")
 }
+
+func (b *BaseController) FormatDateResume(dateStr string) (time.Time, error) {
+	// El layout tiene que coincidir exactamente con el formato del string.
+	layout := "02-Jan-06"
+	return time.Parse(layout, dateStr)
+}

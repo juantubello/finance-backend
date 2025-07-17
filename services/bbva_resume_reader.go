@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ---------- JSON structs in Spanish for unmarshaling ----------
@@ -40,7 +41,7 @@ type PersonaData struct {
 // ---------- Internal English structs ----------
 
 type Expense struct {
-	Date        string
+	Date        time.Time
 	Description string
 	Amount      float64
 }
@@ -195,7 +196,7 @@ func ParseCompleteResponse(jsonData []byte) ([]Holders, Totals, error) {
 				continue
 			}
 			expenses = append(expenses, Expense{
-				Date:        g.Fecha,
+				Date:        formatDateResume(g.Fecha),
 				Description: g.Descripcion,
 				Amount:      amountF,
 			})
@@ -230,4 +231,43 @@ func hashString(data []byte) (string, error) {
 		return "", fmt.Errorf("error writing to hasher: %v", err)
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func formatDateResume(dateStr string) time.Time {
+	// Map de meses abreviados en español a inglés
+	monthMap := map[string]string{
+		"Ene": "Jan",
+		"Feb": "Feb",
+		"Mar": "Mar",
+		"Abr": "Apr",
+		"May": "May",
+		"Jun": "Jun",
+		"Jul": "Jul",
+		"Ago": "Aug",
+		"Sep": "Sep",
+		"Oct": "Oct",
+		"Nov": "Nov",
+		"Dic": "Dec",
+	}
+
+	// Separar por "-" para reemplazar el mes
+	parts := strings.Split(dateStr, "-")
+	if len(parts) != 3 {
+		return time.Time{} // fecha inválida
+	}
+
+	monthEng, ok := monthMap[parts[1]]
+	if !ok {
+		return time.Time{} // mes inválido
+	}
+
+	normalized := fmt.Sprintf("%s-%s-%s", parts[0], monthEng, parts[2])
+
+	layout := "02-Jan-06"
+	t, err := time.Parse(layout, normalized)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return t
 }

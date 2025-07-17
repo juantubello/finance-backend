@@ -36,6 +36,7 @@ type ResumeDetails struct {
 
 type ResumesData struct {
 	CardLogo   string          `json:"cardLogo"`
+	FileName   string          `json:"fileName"`
 	Hash       string          `json:"hash"`
 	ResumeData []ResumeDetails `json:"resumeData"`
 	Totals     services.Totals `json:"totals"`
@@ -52,7 +53,7 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 
 	resumeData := getResumeData(resumesPath)
 
-	c.JSON(http.StatusOK, gin.H{"test": resumeData})
+	c.JSON(http.StatusOK, gin.H{"Resumes": resumeData})
 }
 
 func getResumesFilePath() ([]resumePaths, error) {
@@ -133,6 +134,7 @@ func getResumeData(paths []resumePaths) []ResumesData {
 
 		header := ResumesData{
 			CardLogo:   path.CardLogo,
+			FileName:   path.FileName,
 			Hash:       hash,
 			ResumeData: ResumeDetail,
 			Totals:     totals,
