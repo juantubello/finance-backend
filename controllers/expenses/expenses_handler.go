@@ -43,7 +43,7 @@ type SyncExpenseData struct {
 	SheetRange     string
 }
 
-func (ec *ExpenseController) GetExpenses(c *gin.Context) {
+func (ec *ExpenseController) GetRecentExpenses(c *gin.Context) {
 	type FormattedExpenseResponse struct {
 		models.Expenses
 		FormattedAmount string `json:"formatted_amount"`
@@ -74,11 +74,81 @@ func (ec *ExpenseController) GetExpenses(c *gin.Context) {
 
 	var expenses []models.Expenses
 
-	err = db.
-		Where("strftime('%Y-%m', date) = ?", dateFilter).
-		Group("date").
-		Order("date DESC").
-		Find(&expenses).Error
+	query := db.Where("strftime('%Y-%m', date) = ?", dateFilter).Group("date").Order("date DESC")
+
+	err = query.Find(&expenses).Error
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	formatted := make([]FormattedExpenseResponse, len(expenses))
+	for i, exp := range expenses {
+		formatted[i] = FormattedExpenseResponse{
+			Expenses: models.Expenses{
+				ID:          exp.ID,
+				UUID:        exp.UUID,
+				Description: exp.Description,
+				Amount:      exp.Amount,
+				Type:        exp.Type,
+				DateTime:    ec.FormatDate(exp.DateTime),
+			},
+			FormattedAmount: ec.FormatAmount(exp.Amount),
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"Expenses": formatted})
+}
+
+func (ec *ExpenseController) GetExpenses(c *gin.Context) {
+
+	path := c.Request.URL.Path
+
+	type FormattedExpenseResponse struct {
+		models.Expenses
+		FormattedAmount string `json:"formatted_amount"`
+	}
+
+	yearStr := c.Query("year")
+	monthStr := c.Query("month")
+
+	year, err := strconv.Atoi(yearStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid year"})
+		return
+	}
+
+	month, err := strconv.Atoi(monthStr)
+	if err != nil || month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid month"})
+		return
+	}
+
+	dateFilter := fmt.Sprintf("%04d-%02d", year, month)
+
+	db, err := ec.GetDatabaseInstance("TRANSACTION_DB")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var expenses []models.Expenses
+
+	query := db.Where("strftime('%Y-%m', date) = ?", dateFilter).Group("date").Order("date DESC")
+
+	if path == "/expenses/recent" {
+		limitStr := c.Query("limit")
+
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid limit"})
+			return
+		}
+		query = query.Limit(limit)
+	}
+
+	err = query.Find(&expenses).Error
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
