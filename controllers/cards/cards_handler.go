@@ -11,65 +11,75 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type BalanceController struct {
+type CardsController struct {
 	*cards.BaseController // Embed base to share base methods
 }
 
 type resumePaths struct {
-	cardLogo string
-	filePath string
-	fileName string
+	CardLogo string `json:"cardLogo"`
+	FilePath string `json:"filePath"`
+	FileName string `json:"fileName"`
 }
 
-func NewCardsController() *BalanceController {
-	return &BalanceController{
+func NewCardsController() *CardsController {
+	return &CardsController{
 		BaseController: &cards.BaseController{},
 	}
 }
 
-func (ec *BalanceController) SyncResumes(c *gin.Context) {
+func (ec *CardsController) SyncResumes(c *gin.Context) {
 
-	resumesPath := getResumesFilePath()
+	resumesPath, err := getResumesFilePath()
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"test": resumesPath})
 }
 
-func getResumesFilePath() []resumePaths {
+func getResumesFilePath() ([]resumePaths, error) {
 
-	var resumes []resumePaths
-	//add len to directories
-	directories := make([]string, 2)
+	type directoriesPath struct {
+		path     string
+		cardLogo string
+	}
 
-	directories = append(directories, config.GetEnv("CARD_VISA_PATH"))
-	directories = append(directories, config.GetEnv("CARD_MASTERCARD_PATH"))
+	var resumesPath []resumePaths
+	directories := make([]directoriesPath, 2)
+	directoryInfo := directoriesPath{
+		path:     config.GetEnv("CARD_VISA_PATH"),
+		cardLogo: "visa",
+	}
+	directories[0] = directoryInfo
+
+	directoryInfo = directoriesPath{
+		path:     config.GetEnv("CARD_MASTERCARD_PATH"),
+		cardLogo: "mastercard",
+	}
+
+	directories[1] = directoryInfo
 
 	for _, dir := range directories {
-
-		entries, err := os.ReadDir(dir)
+		entries, err := os.ReadDir(dir.path)
 		if err != nil {
-			//  log.Fatal(err)
+			return nil, fmt.Errorf("error reading directory %s: %w", dir, err)
 		}
-
-		//var files []string
 		for _, v := range entries {
 			if filepath.Ext(v.Name()) != ".pdf" {
 				continue
 			}
-			//completePath := fmt.Sprintf("%s/%s", dir, v.Name())
-			completePath := dir + "/" + v.Name()
+			completePath := dir.path + "/" + v.Name()
 			fmt.Println(completePath)
-			//		if v.IsDir() {
-			//			continue
-			//		}
-			//		if filepath.Ext(v.Name()) != ".md" {
-			//			continue
-			//		}
-			//		files = append(files, filepath.Join(dir, v.Name()))
-		}
+			resumesPath = append(resumesPath, resumePaths{
+				CardLogo: dir.cardLogo,
+				FilePath: completePath,
+				FileName: v.Name()[:len(v.Name())-len(filepath.Ext(v.Name()))],
+			})
 
+		}
 	}
 
-	//return files
-
-	return resumes
+	return resumesPath, nil
 }
