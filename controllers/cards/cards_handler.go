@@ -95,7 +95,7 @@ func getResumeData(paths []resumePaths) {
 	}
 
 	for _, path := range paths {
-		data, err := bbvaReader.ReadResumes(services.ResumePath{
+		data, hash, err := bbvaReader.ReadResumes(services.ResumePath{
 			CardLogo: path.CardLogo,
 			FilePath: path.FilePath,
 			FileName: path.FileName,
@@ -107,6 +107,7 @@ func getResumeData(paths []resumePaths) {
 		}
 
 		fmt.Println(data)
+		fmt.Println(hash)
 	}
 
 }
