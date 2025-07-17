@@ -2,14 +2,18 @@ package services
 
 import (
 	"bytes"
+	"encoding/json"
 	"finance-backend/config"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 type ReaderBBVA struct {
@@ -26,6 +30,34 @@ type ResumeData struct {
 	CardLogo string
 	FilePath string
 	FileName string
+}
+type Gasto struct {
+	Fecha          string `json:"fecha"`
+	FechaTimestamp string `json:"fechaTimestamp"`
+	Descripcion    string `json:"descripcion"`
+	Importe        string `json:"importe"`
+	ImporteFloat   float64
+}
+
+type Totales struct {
+	Pesos        string `json:"pesos"`
+	Dolares      string `json:"dolares"`
+	PesosFloat   float64
+	DolaresFloat float64
+}
+
+type PersonaData struct {
+	Detail []Gasto `json:"Detail"`
+	Total  Totales `json:"Total"`
+}
+
+type GastoConTitular struct {
+	Titular        string
+	Fecha          string
+	FechaTimestamp string
+	Descripcion    string
+	Importe        string
+	ImporteFloat   float64
 }
 
 // NewGoogleSheetsReader crea una nueva instancia del lector de Sheets
@@ -96,14 +128,92 @@ func (bbvaReader *ReaderBBVA) ReadResumes(path ResumePath) ([]ResumeData, error)
 	}
 	defer res.Body.Close()
 
-	resBody, err := io.ReadAll(res.Body)
+	responseJSON, err := io.ReadAll(res.Body)
 	if err != nil {
 		fmt.Println("Error reading the response: ", err)
 		return nil, err
 	}
 
 	fmt.Println("Status:", res.Status)
-	fmt.Println("Response:", string(resBody))
+	//fmt.Println("Response:", string(resBody))
+
+	gastos, totalesPorPersona, totalGlobal, err := ParsearRespuestaCompleta(responseJSON)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, g := range gastos {
+		fmt.Printf("[%s] %s - %s - %.2f\n", g.Titular, g.Fecha, g.Descripcion, g.ImporteFloat)
+	}
+
+	fmt.Println("\nTotales por persona:")
+	for nombre, total := range totalesPorPersona {
+		fmt.Printf("  %s: %.2f pesos / %.2f dólares\n", nombre, total.PesosFloat, total.DolaresFloat)
+	}
+
+	fmt.Println("\nTotal global:")
+	fmt.Printf("  %.2f pesos / %.2f dólares\n", totalGlobal.PesosFloat, totalGlobal.DolaresFloat)
 
 	return resumeData, nil
+}
+
+func ParsearRespuestaCompleta(jsonData []byte) ([]GastoConTitular, map[string]Totales, Totales, error) {
+	var raw map[string]PersonaData
+	err := json.Unmarshal(jsonData, &raw)
+	if err != nil {
+		return nil, nil, Totales{}, fmt.Errorf("error parseando JSON: %w", err)
+	}
+
+	var (
+		gastos            []GastoConTitular
+		totalesPorPersona = make(map[string]Totales)
+		totalGlobal       Totales
+	)
+
+	for nombre, data := range raw {
+		// Parsear totales
+		pesosF, err1 := ParsearImporte(data.Total.Pesos)
+		dolaresF, err2 := ParsearImporte(data.Total.Dolares)
+		if err1 != nil || err2 != nil {
+			log.Printf("Error parseando total de %s: %v %v", nombre, err1, err2)
+		}
+		data.Total.PesosFloat = pesosF
+		data.Total.DolaresFloat = dolaresF
+
+		if nombre == "Total" {
+			totalGlobal = data.Total
+			continue
+		}
+
+		totalesPorPersona[nombre] = data.Total
+
+		// Parsear gastos
+		for _, gasto := range data.Detail {
+			valorFloat, err := ParsearImporte(gasto.Importe)
+			if err != nil {
+				log.Printf("Error parseando importe %q de %s: %v", gasto.Importe, nombre, err)
+				continue
+			}
+
+			gastos = append(gastos, GastoConTitular{
+				Titular:        nombre,
+				Fecha:          gasto.Fecha,
+				FechaTimestamp: gasto.FechaTimestamp,
+				Descripcion:    gasto.Descripcion,
+				Importe:        gasto.Importe,
+				ImporteFloat:   valorFloat,
+			})
+		}
+	}
+
+	return gastos, totalesPorPersona, totalGlobal, nil
+}
+
+func ParsearImporte(importeStr string) (float64, error) {
+	if strings.TrimSpace(importeStr) == "" {
+		return 0.0, nil
+	}
+	sanitized := strings.ReplaceAll(importeStr, ".", "")
+	sanitized = strings.ReplaceAll(sanitized, ",", ".")
+	return strconv.ParseFloat(sanitized, 64)
 }
