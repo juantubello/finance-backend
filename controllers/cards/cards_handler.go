@@ -28,6 +28,18 @@ type resumePaths struct {
 	FileName string `json:"fileName"`
 }
 
+type ResumeData struct {
+	Holder   string             `json:"holder"`
+	Expenses []services.Expense `json:"expenses"`
+	Totals   services.Totals    `json:"totals"`
+}
+
+type ResumeHeader struct {
+	CardLogo   string       `json:"cardLogo"`
+	Hash       string       `json:"hash"`
+	ResumeData []ResumeData `json:"resumeData"`
+}
+
 func (ec *CardsController) SyncResumes(c *gin.Context) {
 
 	resumesPath, err := getResumesFilePath()
@@ -95,7 +107,7 @@ func getResumeData(paths []resumePaths) {
 	}
 
 	for _, path := range paths {
-		data, hash, err := bbvaReader.ReadResumes(services.ResumePath{
+		holders, totals, hash, err := bbvaReader.ReadResumes(services.ResumePath{
 			CardLogo: path.CardLogo,
 			FilePath: path.FilePath,
 			FileName: path.FileName,
@@ -106,7 +118,8 @@ func getResumeData(paths []resumePaths) {
 			continue
 		}
 
-		fmt.Println(data)
+		fmt.Println(holders)
+		fmt.Println(totals)
 		fmt.Println(hash)
 	}
 

@@ -80,16 +80,15 @@ func NewPdfReaderBBVA() (*PdfReaderBBVA, error) {
 	}, nil
 }
 
-func (reader *PdfReaderBBVA) ReadResumes(path ResumePath) ([]ResumeData, string, error) {
-	var resumeData []ResumeData
+func (reader *PdfReaderBBVA) ReadResumes(path ResumePath) ([]Holders, Totals, string, error) {
 
 	if path.FilePath == "" {
-		return nil, "", fmt.Errorf("file path is empty")
+		return nil, Totals{}, "", fmt.Errorf("file path is empty")
 	}
 
 	file, err := os.Open(path.FilePath)
 	if err != nil {
-		return nil, "", fmt.Errorf("error opening file: %w", err)
+		return nil, Totals{}, "", fmt.Errorf("error opening file: %w", err)
 	}
 	defer file.Close()
 
@@ -102,44 +101,44 @@ func (reader *PdfReaderBBVA) ReadResumes(path ResumePath) ([]ResumeData, string,
 
 	part, err := writer.CreatePart(header)
 	if err != nil {
-		return nil, "", fmt.Errorf("error creating form part: %w", err)
+		return nil, Totals{}, "", fmt.Errorf("error creating form part: %w", err)
 	}
 
 	_, err = io.Copy(part, file)
 	if err != nil {
-		return nil, "", fmt.Errorf("error copying file: %w", err)
+		return nil, Totals{}, "", fmt.Errorf("error copying file: %w", err)
 	}
 
 	if err := writer.Close(); err != nil {
-		return nil, "", fmt.Errorf("error closing writer: %w", err)
+		return nil, Totals{}, "", fmt.Errorf("error closing writer: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", reader.service, body)
 	if err != nil {
-		return nil, "", fmt.Errorf("error creating request: %w", err)
+		return nil, Totals{}, "", fmt.Errorf("error creating request: %w", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	client := &http.Client{}
 	res, err := client.Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("error making request: %w", err)
+		return nil, Totals{}, "", fmt.Errorf("error making request: %w", err)
 	}
 	defer res.Body.Close()
 
 	responseJSON, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, "", fmt.Errorf("error reading response: %w", err)
+		return nil, Totals{}, "", fmt.Errorf("error reading response: %w", err)
 	}
 
 	hash, err := hashString(responseJSON)
 	if err != nil {
-		return nil, "", fmt.Errorf("error hashing response: %w", err)
+		return nil, Totals{}, "", fmt.Errorf("error hashing response: %w", err)
 	}
 
 	holders, globalTotals, err := ParseCompleteResponse(responseJSON)
 	if err != nil {
-		return nil, "", err
+		return nil, Totals{}, "", err
 	}
 
 	for _, holder := range holders {
@@ -153,7 +152,7 @@ func (reader *PdfReaderBBVA) ReadResumes(path ResumePath) ([]ResumeData, string,
 	fmt.Println("Global Totals:")
 	fmt.Printf("  %.2f pesos / %.2f dollars\n", globalTotals.ARS, globalTotals.USD)
 
-	return resumeData, hash, nil
+	return holders, globalTotals, hash, nil
 }
 
 // ---------- Helpers ----------
