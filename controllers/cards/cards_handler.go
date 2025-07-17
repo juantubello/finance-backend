@@ -28,16 +28,17 @@ type resumePaths struct {
 	FileName string `json:"fileName"`
 }
 
-type ResumeData struct {
+type ResumeDetails struct {
 	Holder   string             `json:"holder"`
 	Expenses []services.Expense `json:"expenses"`
 	Totals   services.Totals    `json:"totals"`
 }
 
-type ResumeHeader struct {
-	CardLogo   string       `json:"cardLogo"`
-	Hash       string       `json:"hash"`
-	ResumeData []ResumeData `json:"resumeData"`
+type ResumesData struct {
+	CardLogo   string          `json:"cardLogo"`
+	Hash       string          `json:"hash"`
+	ResumeData []ResumeDetails `json:"resumeData"`
+	Totals     services.Totals `json:"totals"`
 }
 
 func (ec *CardsController) SyncResumes(c *gin.Context) {
@@ -49,9 +50,9 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 		return
 	}
 
-	getResumeData(resumesPath)
+	resumeData := getResumeData(resumesPath)
 
-	c.JSON(http.StatusOK, gin.H{"test": resumesPath})
+	c.JSON(http.StatusOK, gin.H{"test": resumeData})
 }
 
 func getResumesFilePath() ([]resumePaths, error) {
@@ -99,7 +100,10 @@ func getResumesFilePath() ([]resumePaths, error) {
 	return resumesPath, nil
 }
 
-func getResumeData(paths []resumePaths) {
+func getResumeData(paths []resumePaths) []ResumesData {
+
+	var ResumeData []ResumesData
+	var ResumeDetail []ResumeDetails
 
 	bbvaReader, err := services.NewPdfReaderBBVA()
 	if err != nil {
@@ -118,9 +122,26 @@ func getResumeData(paths []resumePaths) {
 			continue
 		}
 
-		fmt.Println(holders)
-		fmt.Println(totals)
-		fmt.Println(hash)
+		for _, holder := range holders {
+			detail := ResumeDetails{
+				Holder:   holder.Holder,
+				Expenses: holder.Expenses,
+				Totals:   holder.Totals,
+			}
+			ResumeDetail = append(ResumeDetail, detail)
+		}
+
+		header := ResumesData{
+			CardLogo:   path.CardLogo,
+			Hash:       hash,
+			ResumeData: ResumeDetail,
+			Totals:     totals,
+		}
+
+		ResumeData = append(ResumeData, header)
+		ResumeDetail = nil // Reset for next iteration
 	}
+
+	return ResumeData
 
 }
