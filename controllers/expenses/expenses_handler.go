@@ -43,35 +43,28 @@ type SyncExpenseData struct {
 	SheetRange     string
 }
 
-// GetExpenses obtiene los gastos filtrados por fecha
 func (ec *ExpenseController) GetExpenses(c *gin.Context) {
-
-	// Expenses response inherit Expenses model and add new json field for formatted amount
 	type FormattedExpenseResponse struct {
 		models.Expenses
 		FormattedAmount string `json:"formatted_amount"`
 	}
 
-	year := c.Query("year")
-	month := c.Query("month")
-	datePattern := fmt.Sprintf("%s-%s%%", year, month)
+	yearStr := c.Query("year")
+	monthStr := c.Query("month")
 
-	new_month_format := month
-
-	// -> '' is for bytes and runes  -> "" is for strings
-	//month[1:]
-	//Esto es slicing de strings. Devuelve una subcadena que comienza en la posición 1 hasta el final.
-	//Por ejemplo:
-	//"07"[1:] → "7"
-	//"11"[1:] → "1" (esto probablemente no lo querés si el mes es válido)
-
-	if month[0] == '0' {
-		new_month_format = month[1:]
-	} else {
-		new_month_format = month
+	year, err := strconv.Atoi(yearStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid year"})
+		return
 	}
 
-	datePatternNew := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
+	month, err := strconv.Atoi(monthStr)
+	if err != nil || month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid month"})
+		return
+	}
+
+	dateFilter := fmt.Sprintf("%04d-%02d", year, month)
 
 	db, err := ec.GetDatabaseInstance("TRANSACTION_DB")
 	if err != nil {
@@ -80,20 +73,16 @@ func (ec *ExpenseController) GetExpenses(c *gin.Context) {
 	}
 
 	var expenses []models.Expenses
-	if err := db.Where("date_time LIKE ?", datePattern).Find(&expenses).Error; err != nil {
+
+	err = db.
+		Where("strftime('%Y-%m', date) = ?", dateFilter).
+		Group("date").
+		Order("date DESC").
+		Find(&expenses).Error
+
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
-	}
-
-	var expensesNewFormat []models.Expenses
-	if err := db.Where("date_time LIKE ?", datePatternNew).Find(&expensesNewFormat).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	if len(expensesNewFormat) > 0 {
-		// the 3 dots ... means we are appending a slice
-		expenses = append(expenses, expensesNewFormat...)
 	}
 
 	formatted := make([]FormattedExpenseResponse, len(expenses))
@@ -105,13 +94,13 @@ func (ec *ExpenseController) GetExpenses(c *gin.Context) {
 				Description: exp.Description,
 				Amount:      exp.Amount,
 				Type:        exp.Type,
-				DateTime:    ec.FormatDate(exp.DateTime), // acá el cambio
+				DateTime:    ec.FormatDate(exp.DateTime),
 			},
 			FormattedAmount: ec.FormatAmount(exp.Amount),
 		}
 	}
 
-	c.JSON(http.StatusOK, formatted)
+	c.JSON(http.StatusOK, gin.H{"Expenses": formatted})
 }
 
 func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
@@ -131,9 +120,6 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 		TypesSummary   []TypeSummary `json:"types_summary"`
 	}
 
-	year := c.Query("year")
-	month := c.Query("month")
-
 	// The following block converts the "exclude" parameter into a slice of strings usable by GORM.
 	// This allows filtering excluded types coming in the URL as a single string, for example:
 	// ?exclude=[Rent and utilities, Other]
@@ -149,18 +135,22 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 		exclude[i] = strings.TrimSpace(exclude[i])
 	}
 
-	datePattern := fmt.Sprintf("%s-%s%%", year, month)
-	period := fmt.Sprintf("%s-%s", month, year)
+	yearStr := c.Query("year")
+	monthStr := c.Query("month")
 
-	new_month_format := month
-
-	if month[0] == '0' {
-		new_month_format = month[1:]
-	} else {
-		new_month_format = month
+	year, err := strconv.Atoi(yearStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid year"})
+		return
 	}
 
-	datePattern2 := fmt.Sprintf("%%/%s/%s%%", new_month_format, year)
+	month, err := strconv.Atoi(monthStr)
+	if err != nil || month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid month"})
+		return
+	}
+
+	dateFilter := fmt.Sprintf("%04d-%02d", year, month)
 
 	db, err := ec.GetDatabaseInstance("TRANSACTION_DB")
 	if err != nil {
@@ -176,8 +166,7 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 
 	if err := db.Model(&models.Expenses{}).
 		Select("type, sum(amount) as total").
-		Where("date_time LIKE ?", datePattern).
-		Or("date_time LIKE ?", datePattern2).
+		Where("strftime('%Y-%m', date) = ?", dateFilter).
 		Where("type NOT IN ?", exclude).
 		Group("type").
 		Find(&typeSummaries).Error; err != nil {
@@ -202,11 +191,11 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 	response := ExpensesSummaryResponse{
 		Total:          total,
 		FormattedTotal: ec.FormatAmount(total),
-		Period:         period,
+		Period:         dateFilter,
 		TypesSummary:   formattedTypeSummaries,
 	}
 
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, gin.H{"ExpensesSummary": response})
 }
 
 func (ec *ExpenseController) SyncCurrentMonthExpenses(c *gin.Context) {
@@ -380,6 +369,13 @@ func expenseSheetDataToMap(data [][]interface{}) (map[string]models.Expenses, er
 		if i == 0 { // Saltar encabezados
 			continue
 		}
+
+		// Parsear la fecha del formato "17/6/2025 18:11:40" a time.Time
+		parsedDate, err := time.Parse("2/1/2006 15:04:05", row[DateTime].(string))
+		if err != nil {
+			return nil, fmt.Errorf("error parsing date at row %d: %v", i, err)
+		}
+
 		uuidStr := toString(row[UUID]) // Clave del mapa
 		expensesMap[uuidStr] = models.Expenses{
 			UUID:        uuidStr,
@@ -387,6 +383,7 @@ func expenseSheetDataToMap(data [][]interface{}) (map[string]models.Expenses, er
 			Description: toString(row[Description]),
 			Amount:      parseAmount(row[Amount]),
 			Type:        toString(row[Type]),
+			Date:        parsedDate,
 		}
 	}
 
@@ -424,6 +421,7 @@ func expenseDatabaseDataToMap(data []models.Expenses) (map[string]models.Expense
 			Description: toString(row.Description),
 			Amount:      parseAmount(row.Amount),
 			Type:        toString(row.Type),
+			Date:        row.Date,
 		}
 	}
 
