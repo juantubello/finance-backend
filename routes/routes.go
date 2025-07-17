@@ -2,6 +2,7 @@ package routes
 
 import (
 	"finance-backend/controllers/balance"
+	"finance-backend/controllers/cards"
 	"finance-backend/controllers/expenses"
 	"finance-backend/controllers/incomes"
 
@@ -24,4 +25,7 @@ func SetupRoutes(r *gin.Engine) {
 
 	balanceController := balance.NewBalanceController()
 	r.GET("/balance", balanceController.GetBalance)
+
+	cardController := cards.NewCardsController()
+	r.GET("/cards/sync/resumes", cardController.SyncResumes)
 }
