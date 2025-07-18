@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -58,22 +59,6 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 
 	resumesParsedData := getResumeData(resumesPath)
 
-	// resume := Resume{
-	//     DocumentNumber: "abc123",
-	//     CardType: "VISA",
-	//     ResumeDate: "2025-07-01T00:00:00",
-	//     Holders: []Holder{
-	//         {
-	//             Holder: "Juan",
-	//             TotalARS: 1000,
-	//             TotalUSD: 2.5,
-	//             Expenses: []HolderExpense{
-	//                 {Position: 1, Date: "2025-07-01T00:00:00", Description: "Compra", Amount: 1000},
-	//             },
-	//         },
-	//     },
-	// }
-
 	for _, resume := range resumesParsedData {
 
 		for _, holder := range resume.ResumeData {
@@ -102,11 +87,16 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 
 		}
 
+		resumeDate, err := parseMonthYear(resume.FileName)
+		if err != nil {
+			continue // Skip this resume if date parsing fails
+		}
+
 		resumes = append(resumes, models.Resume{
 			DocumentNumber: resume.Hash,
 			Holders:        holders,
 			CardType:       resume.CardLogo,
-			ResumeDate:     resume.FileName, // Assuming FileName is the date in the format "2025-07-08T00:00:00"
+			ResumeDate:     resumeDate,
 			TotalARS:       resume.Totals.ARS,
 			TotalUSD:       resume.Totals.USD,
 		})
@@ -208,4 +198,16 @@ func getResumeData(paths []resumePaths) []ResumesData {
 
 	return ResumeData
 
+}
+
+func parseMonthYear(input string) (time.Time, error) {
+	// Formato: "MM-YYYY"
+	layout := "01-2006"
+	t, err := time.Parse(layout, input)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	// Ajustar al primer día del mes
+	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC), nil
 }
