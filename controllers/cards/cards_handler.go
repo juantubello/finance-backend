@@ -3,6 +3,7 @@ package cards
 import (
 	"finance-backend/config"
 	cards "finance-backend/controllers/base"
+	"finance-backend/models"
 	"finance-backend/services"
 	"fmt"
 	"net/http"
@@ -44,6 +45,10 @@ type ResumesData struct {
 
 func (ec *CardsController) SyncResumes(c *gin.Context) {
 
+	var resumes []models.Resume
+	var holders []models.Holder
+	var holdersExpenses []models.HolderExpense
+
 	resumesPath, err := getResumesFilePath()
 
 	if err != nil {
@@ -51,9 +56,66 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 		return
 	}
 
-	resumeData := getResumeData(resumesPath)
+	resumesParsedData := getResumeData(resumesPath)
 
-	c.JSON(http.StatusOK, gin.H{"Resumes": resumeData})
+	// resume := Resume{
+	//     DocumentNumber: "abc123",
+	//     CardType: "VISA",
+	//     ResumeDate: "2025-07-01T00:00:00",
+	//     Holders: []Holder{
+	//         {
+	//             Holder: "Juan",
+	//             TotalARS: 1000,
+	//             TotalUSD: 2.5,
+	//             Expenses: []HolderExpense{
+	//                 {Position: 1, Date: "2025-07-01T00:00:00", Description: "Compra", Amount: 1000},
+	//             },
+	//         },
+	//     },
+	// }
+
+	for _, resume := range resumesParsedData {
+
+		for _, holder := range resume.ResumeData {
+
+			for _, expense := range holder.Expenses {
+
+				holdersExpenses = append(holdersExpenses, models.HolderExpense{
+					DocumentNumber: resume.Hash,
+					Holder:         holder.Holder,
+					Position:       len(holdersExpenses) + 1,
+					Date:           expense.Date,
+					Description:    expense.Description,
+					Amount:         expense.Amount,
+				})
+			}
+
+			holders = append(holders, models.Holder{
+				DocumentNumber: resume.Hash,
+				Holder:         holder.Holder,
+				TotalARS:       holder.Totals.ARS,
+				TotalUSD:       holder.Totals.USD,
+				Expenses:       holdersExpenses,
+			})
+
+			holdersExpenses = nil // Reset for next holder
+
+		}
+
+		resumes = append(resumes, models.Resume{
+			DocumentNumber: resume.Hash,
+			Holders:        holders,
+			CardType:       resume.CardLogo,
+			ResumeDate:     resume.FileName, // Assuming FileName is the date in the format "2025-07-08T00:00:00"
+			TotalARS:       resume.Totals.ARS,
+			TotalUSD:       resume.Totals.USD,
+		})
+
+		holders = nil // Reset for next resume
+
+	}
+
+	c.JSON(http.StatusOK, gin.H{"Resumes": resumes})
 }
 
 func getResumesFilePath() ([]resumePaths, error) {
