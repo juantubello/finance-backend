@@ -65,7 +65,11 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 		return
 	}
 
-	resumesParsedData := getResumeData(resumesPath)
+	resumesParsedData, err := getResumeData(resumesPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	//Todo - Maybe change this logic to avoid nested loops, for our use case it is not a problem ATM
 	for _, resume := range resumesParsedData {
@@ -201,14 +205,14 @@ func getResumesFilePath() ([]resumePaths, error) {
 	return resumesPath, nil
 }
 
-func getResumeData(paths []resumePaths) []ResumesData {
+func getResumeData(paths []resumePaths) ([]ResumesData, error) {
 
 	var ResumeData []ResumesData
 	var ResumeDetail []ResumeDetails
 
 	bbvaReader, err := services.NewPdfReaderBBVA()
 	if err != nil {
-		//return fmt.Errorf("error trying to create a new google reader instance at SyncExpensesByMonth(): %w", err)
+		return nil, fmt.Errorf("error trying to create a BBVA PDF reader instance at getResumeData(): %w", err)
 	}
 
 	for _, path := range paths {
@@ -244,7 +248,7 @@ func getResumeData(paths []resumePaths) []ResumesData {
 		ResumeDetail = nil // Reset for next iteration
 	}
 
-	return ResumeData
+	return ResumeData, nil
 
 }
 
