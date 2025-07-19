@@ -28,4 +28,5 @@ func SetupRoutes(r *gin.Engine) {
 
 	cardController := cards.NewCardsController()
 	r.GET("/cards/sync/resumes", cardController.SyncResumes)
+	r.GET("/cards/expenses", cardController.GetCardsExpenses)
 }

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -44,13 +46,83 @@ type ResumesData struct {
 	Totals     services.Totals `json:"totals"`
 }
 
+func (ec *CardsController) GetCardsExpenses(c *gin.Context) {
+	year := c.Query("year")
+	month := c.Query("month")
+	cardType := strings.ToLower(c.DefaultQuery("card_type", "all"))
+	holderFilter := strings.ToLower(c.DefaultQuery("holder", "all"))
+	monthsBackStr := c.DefaultQuery("months_back", "")
+
+	// Validar y armar el string base "YYYY-MM"
+	yearInt, err := strconv.Atoi(year)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid year"})
+		return
+	}
+	monthInt, err := strconv.Atoi(month)
+	if err != nil || monthInt < 1 || monthInt > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month"})
+		return
+	}
+
+	// Crear slice de meses válidos para comparar con strftime('%Y-%m', resume_date)
+	var monthFilters []string
+	targetDate := time.Date(yearInt, time.Month(monthInt), 1, 0, 0, 0, 0, time.UTC)
+
+	monthsBack := 0
+	if monthsBackStr != "" {
+		monthsBack, _ = strconv.Atoi(monthsBackStr)
+	}
+	for i := 0; i <= monthsBack; i++ {
+		d := targetDate.AddDate(0, -i, 0)
+		monthFilters = append(monthFilters, d.Format("2006-01"))
+	}
+
+	// Construir query con strftime
+
+	db, err := ec.GetDatabaseInstance("CARDS_DB")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	query := db.Preload("Holders.Expenses")
+	query = query.Where("strftime('%Y-%m', resume_date) IN ?", monthFilters)
+
+	if cardType != "all" {
+		query = query.Where("LOWER(card_type) = ?", cardType)
+	}
+
+	var resumes []models.Resume
+	err = query.Find(&resumes).Error
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Filtrar holders en memoria si se especificó
+	if holderFilter != "all" {
+		for i := range resumes {
+			var filteredHolders []models.Holder
+			for _, h := range resumes[i].Holders {
+				if strings.ToLower(h.Holder) == holderFilter {
+					filteredHolders = append(filteredHolders, h)
+				}
+			}
+			resumes[i].Holders = filteredHolders
+		}
+	}
+
+	c.JSON(http.StatusOK, resumes)
+}
+
 func (ec *CardsController) SyncResumes(c *gin.Context) {
 
 	type JSONResponse struct {
-		ResumeDate time.Time `json:"resumeDate"`
-		Hash       string    `json:"hash"`
-		Message    string    `json:"message"`
-		CardType   string    `json:"cardType"`
+		ResumeDate string `json:"resumeDate"`
+		Hash       string `json:"hash"`
+		Message    string `json:"message"`
+		CardType   string `json:"cardType"`
 	}
 
 	var resumes []models.Resume
@@ -84,7 +156,7 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 					DocumentNumber: resume.Hash,
 					Holder:         holder.Holder,
 					Position:       len(holdersExpenses) + 1,
-					Date:           expense.Date,
+					Date:           expense.Date.Format("2006-01-02"), // Convert to string in YYYY-MM-DD format
 					Description:    expense.Description,
 					Amount:         expense.Amount,
 				})
@@ -111,7 +183,7 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 			DocumentNumber: resume.Hash,
 			Holders:        holders,
 			CardType:       resume.CardLogo,
-			ResumeDate:     resumeDate,
+			ResumeDate:     resumeDate.Format("2006-01-02"), // Convert to string in YYYY-MM-DD format
 			TotalARS:       resume.Totals.ARS,
 			TotalUSD:       resume.Totals.USD,
 		})
