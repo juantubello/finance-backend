@@ -105,6 +105,15 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 
 	}
 
+	// db, err := ec.GetDatabaseInstance("TRANSACTION_DB")
+	// if err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	// }
+
+	// for _, resume := range resumes {
+
+	// }
+
 	c.JSON(http.StatusOK, gin.H{"Resumes": resumes})
 }
 
