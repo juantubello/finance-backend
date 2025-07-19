@@ -46,9 +46,16 @@ type ResumesData struct {
 
 func (ec *CardsController) SyncResumes(c *gin.Context) {
 
+	type JSONResponse struct {
+		ResumeDate time.Time `json:"resumeDate"`
+		Hash       string    `json:"hash"`
+		Message    string    `json:"message"`
+	}
+
 	var resumes []models.Resume
 	var holders []models.Holder
 	var holdersExpenses []models.HolderExpense
+	var response []JSONResponse
 
 	resumesPath, err := getResumesFilePath()
 
@@ -105,16 +112,45 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 
 	}
 
-	// db, err := ec.GetDatabaseInstance("TRANSACTION_DB")
-	// if err != nil {
-	// 	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-	// }
+	db, err := ec.GetDatabaseInstance("CARDS_DB")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	// for _, resume := range resumes {
+	for _, resume := range resumes {
+		//check if the resume already exists on database
+		existingResume := models.Resume{}
+		db.Where("document_number = ?", resume.DocumentNumber).First(&existingResume)
 
-	// }
+		if existingResume.DocumentNumber != "" {
+			response = append(response, JSONResponse{
+				ResumeDate: resume.ResumeDate,
+				Hash:       resume.DocumentNumber,
+				Message:    "Resume already exists",
+			})
+			//db.Model(&existingResume).Updates(resume)
+		} else {
+			// Resume does not exist, create it
+			result := db.Model(&models.Resume{}).Create(&resume)
+			if result.Error != nil {
+				response = append(response, JSONResponse{
+					ResumeDate: resume.ResumeDate,
+					Hash:       resume.DocumentNumber,
+					Message:    "Error creating resume",
+				})
+			} else {
+				response = append(response, JSONResponse{
+					ResumeDate: resume.ResumeDate,
+					Hash:       resume.DocumentNumber,
+					Message:    "Resume created successfully",
+				})
+			}
 
-	c.JSON(http.StatusOK, gin.H{"Resumes": resumes})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"Resumes sync status": response})
 }
 
 func getResumesFilePath() ([]resumePaths, error) {
