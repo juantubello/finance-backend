@@ -67,6 +67,7 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 
 	resumesParsedData := getResumeData(resumesPath)
 
+	//Todo - Maybe change this logic to avoid nested loops, for our use case it is not a problem ATM
 	for _, resume := range resumesParsedData {
 
 		for _, holder := range resume.ResumeData {
