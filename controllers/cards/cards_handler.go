@@ -71,7 +71,9 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 		return
 	}
 
-	//Todo - Maybe change this logic to avoid nested loops, for our use case it is not a problem ATM
+	// ---------- Database records population ----------
+
+	//Todo - Maybe change this logic to avoid this triple nested loop, for our use case it is not a problem ATM
 	for _, resume := range resumesParsedData {
 
 		for _, holder := range resume.ResumeData {
@@ -117,6 +119,8 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 		holders = nil // Reset for next resume
 
 	}
+
+	// ---------- Database insertions ----------
 
 	db, err := ec.GetDatabaseInstance("CARDS_DB")
 	if err != nil {
