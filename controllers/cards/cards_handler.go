@@ -50,6 +50,7 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 		ResumeDate time.Time `json:"resumeDate"`
 		Hash       string    `json:"hash"`
 		Message    string    `json:"message"`
+		CardType   string    `json:"cardType"`
 	}
 
 	var resumes []models.Resume
@@ -125,22 +126,23 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 
 		if existingResume.DocumentNumber != "" {
 			response = append(response, JSONResponse{
+				CardType:   resume.CardType,
 				ResumeDate: resume.ResumeDate,
 				Hash:       resume.DocumentNumber,
 				Message:    "Resume already exists",
 			})
-			//db.Model(&existingResume).Updates(resume)
 		} else {
-			// Resume does not exist, create it
 			result := db.Model(&models.Resume{}).Create(&resume)
 			if result.Error != nil {
 				response = append(response, JSONResponse{
+					CardType:   resume.CardType,
 					ResumeDate: resume.ResumeDate,
 					Hash:       resume.DocumentNumber,
 					Message:    "Error creating resume",
 				})
 			} else {
 				response = append(response, JSONResponse{
+					CardType:   resume.CardType,
 					ResumeDate: resume.ResumeDate,
 					Hash:       resume.DocumentNumber,
 					Message:    "Resume created successfully",
