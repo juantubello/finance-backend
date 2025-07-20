@@ -47,13 +47,14 @@ type ResumesData struct {
 }
 
 func (ec *CardsController) GetCardsExpenses(c *gin.Context) {
+
 	year := c.Query("year")
 	month := c.Query("month")
 	cardType := strings.ToLower(c.DefaultQuery("card_type", "all"))
 	holderFilter := strings.ToLower(c.DefaultQuery("holder", "all"))
 	monthsBackStr := c.DefaultQuery("months_back", "")
 
-	// Validar y armar el string base "YYYY-MM"
+	// Validate and build the base string "YYYY-MM"
 	yearInt, err := strconv.Atoi(year)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid year"})
@@ -65,7 +66,7 @@ func (ec *CardsController) GetCardsExpenses(c *gin.Context) {
 		return
 	}
 
-	// Crear slice de meses válidos para comparar con strftime('%Y-%m', resume_date)
+	// Create a slice of valid months to compare with strftime('%Y-%m', resume_date)
 	var monthFilters []string
 	targetDate := time.Date(yearInt, time.Month(monthInt), 1, 0, 0, 0, 0, time.UTC)
 
@@ -78,7 +79,7 @@ func (ec *CardsController) GetCardsExpenses(c *gin.Context) {
 		monthFilters = append(monthFilters, d.Format("2006-01"))
 	}
 
-	// Construir query con strftime
+	// Build query with strftime
 
 	db, err := ec.GetDatabaseInstance("CARDS_DB")
 	if err != nil {
@@ -100,7 +101,14 @@ func (ec *CardsController) GetCardsExpenses(c *gin.Context) {
 		return
 	}
 
-	// Filtrar holders en memoria si se especificó
+	if monthsBackStr != "" {
+
+	}
+
+	// Filter holders in memory if specified
+
+	var noHolders = false
+
 	if holderFilter != "all" {
 		for i := range resumes {
 			var filteredHolders []models.Holder
@@ -110,7 +118,17 @@ func (ec *CardsController) GetCardsExpenses(c *gin.Context) {
 				}
 			}
 			resumes[i].Holders = filteredHolders
+
+			if len(resumes[i].Holders) == 0 {
+				noHolders = true
+			}
+
 		}
+	}
+
+	if noHolders {
+		c.JSON(http.StatusOK, gin.H{"result": "No holders found for the specified filter"})
+		return
 	}
 
 	c.JSON(http.StatusOK, resumes)
@@ -153,21 +171,24 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 			for _, expense := range holder.Expenses {
 
 				holdersExpenses = append(holdersExpenses, models.HolderExpense{
-					DocumentNumber: resume.Hash,
-					Holder:         holder.Holder,
-					Position:       len(holdersExpenses) + 1,
-					Date:           expense.Date.Format("2006-01-02"), // Convert to string in YYYY-MM-DD format
-					Description:    expense.Description,
-					Amount:         expense.Amount,
+					DocumentNumber:  resume.Hash,
+					Holder:          holder.Holder,
+					Position:        len(holdersExpenses) + 1,
+					Date:            expense.Date.Format("2006-01-02"), // Convert to string in YYYY-MM-DD format
+					Description:     expense.Description,
+					Amount:          expense.Amount,
+					FormattedAmount: ec.FormatAmount(expense.Amount),
 				})
 			}
 
 			holders = append(holders, models.Holder{
-				DocumentNumber: resume.Hash,
-				Holder:         holder.Holder,
-				TotalARS:       holder.Totals.ARS,
-				TotalUSD:       holder.Totals.USD,
-				Expenses:       holdersExpenses,
+				DocumentNumber:    resume.Hash,
+				Holder:            holder.Holder,
+				TotalARS:          holder.Totals.ARS,
+				FormattedTotalARS: ec.FormatAmount(holder.Totals.ARS),
+				TotalUSD:          holder.Totals.USD,
+				FormattedTotalUSD: ec.FormatAmount(holder.Totals.USD),
+				Expenses:          holdersExpenses,
 			})
 
 			holdersExpenses = nil // Reset for next holder
@@ -180,12 +201,14 @@ func (ec *CardsController) SyncResumes(c *gin.Context) {
 		}
 
 		resumes = append(resumes, models.Resume{
-			DocumentNumber: resume.Hash,
-			Holders:        holders,
-			CardType:       resume.CardLogo,
-			ResumeDate:     resumeDate.Format("2006-01-02"), // Convert to string in YYYY-MM-DD format
-			TotalARS:       resume.Totals.ARS,
-			TotalUSD:       resume.Totals.USD,
+			DocumentNumber:    resume.Hash,
+			Holders:           holders,
+			CardType:          resume.CardLogo,
+			ResumeDate:        resumeDate.Format("2006-01-02"), // Convert to string in YYYY-MM-DD format
+			TotalARS:          resume.Totals.ARS,
+			FormattedTotalARS: ec.FormatAmount(resume.Totals.ARS),
+			TotalUSD:          resume.Totals.USD,
+			FormattedTotalUSD: ec.FormatAmount(resume.Totals.USD),
 		})
 
 		holders = nil // Reset for next resume
