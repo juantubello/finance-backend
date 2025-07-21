@@ -80,7 +80,6 @@ func (ec *CardsController) GetCardsExpenses(c *gin.Context) {
 	}
 
 	// Build query with strftime
-
 	db, err := ec.GetDatabaseInstance("CARDS_DB")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

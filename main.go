@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"finance-backend/config"
 	"finance-backend/routes"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -32,77 +34,82 @@ var colorMap = map[Color]string{
 }
 
 func main() {
-
 	msg, err := MessageFormater(Yellow, "starting server...")
-	if err != nil {
-		log.Fatal(err)
-	} else {
-		fmt.Println(msg)
-	}
+	checkErrOrPrint(msg, err)
 
-	msg, err = MessageFormater(Yellow, "loading enviroment variables...")
-	if err != nil {
-		log.Fatal(err)
-	} else {
-		fmt.Println(msg)
-	}
-
+	msg, err = MessageFormater(Yellow, "loading environment variables...")
+	checkErrOrPrint(msg, err)
 	config.LoadEnv()
 
 	msg, err = MessageFormater(Yellow, "connecting to database...")
-	if err != nil {
-		log.Fatal(err)
-	} else {
-		fmt.Println(msg)
-	}
+	checkErrOrPrint(msg, err)
 
 	transactionsPath := config.GetEnv("TRANSACTIONS_DB_PATH")
 	_, err = config.ConnectDB("transactions", transactionsPath)
-
 	if err != nil {
-		fmt.Println(MessageFormater(Red, "Error trying to connect to transactions table"))
-		log.Fatal(err)
+		log.Fatal(MessageFormaterMust(Red, "Error trying to connect to transactions table: "+err.Error()))
 	}
 
 	cardsPath := config.GetEnv("CARDS_DB_PATH")
 	_, err = config.ConnectDB("cards", cardsPath)
-
 	if err != nil {
-		fmt.Println(MessageFormater(Red, "Error trying to connect to cards table"))
-		log.Fatal(err)
+		log.Fatal(MessageFormaterMust(Red, "Error trying to connect to cards table: "+err.Error()))
 	}
 
 	msg, err = MessageFormater(Yellow, "setting routes...")
-	if err != nil {
-		log.Fatal(err)
-	} else {
-		fmt.Println(msg)
-	}
+	checkErrOrPrint(msg, err)
 
 	r := gin.Default()
+
+	// ✅ CORS global habilitado (desarrollo o API pública)
+	r.Use(cors.New(cors.Config{
+		AllowAllOrigins:  true,
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
+
+	/*
+		// 🔒 CORS restringido (para producción)
+		r.Use(cors.New(cors.Config{
+			AllowOrigins:     []string{"https://casapipis.net"},
+			AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+			ExposeHeaders:    []string{"Content-Length"},
+			AllowCredentials: true,
+			MaxAge:           12 * time.Hour,
+		}))
+	*/
+
 	routes.SetupRoutes(r)
 
-	var port string = config.GetEnv("PORT")
+	port := config.GetEnv("PORT")
+	portMsg := "Trying to serve HTTP on port..." + port
+	msg, err = MessageFormater(Cyan, portMsg)
+	checkErrOrPrint(msg, err)
 
-	portMessage := "Trying to serve HTTP on port..." + port
-	portParameter := ":" + port
-	msg, err = MessageFormater(Cyan, portMessage)
-
-	if err != nil {
-		log.Fatal(err)
-	} else {
-		fmt.Println(msg)
-	}
-
-	r.Run(portParameter)
+	r.Run(":" + port)
 }
 
 func MessageFormater(color Color, message string) (string, error) {
 	val, ok := colorMap[color]
 	if ok {
-		var formatedMessage string = "\033[" + val + message + "\033[0m"
-		return formatedMessage, nil
-	} else {
-		return "", fmt.Errorf("error color not found at MessageFormater()")
+		formatted := "\033[" + val + message + "\033[0m"
+		return formatted, nil
 	}
+	return "", fmt.Errorf("error: color not found at MessageFormater()")
+}
+
+func MessageFormaterMust(color Color, message string) string {
+	formatted, _ := MessageFormater(color, message)
+	return formatted
+}
+
+func checkErrOrPrint(msg string, err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(msg)
 }
