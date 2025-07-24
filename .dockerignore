@@ -1,0 +1,7 @@
+.git
+finance-backend
+finance-backend.exe
+launch.json
+README.md
+*.log
+*.db

@@ -58,7 +58,7 @@ func main() {
 
 	msg, err = MessageFormater(Yellow, "setting routes...")
 	checkErrOrPrint(msg, err)
-
+	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
 	// ✅ CORS global habilitado (desarrollo o API pública)
