@@ -221,6 +221,7 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 	}
 
 	dateFilter := fmt.Sprintf("%04d-%02d", year, month)
+	period := fmt.Sprintf("%02d-%04d", month, year)
 
 	db, err := ec.GetDatabaseInstance("TRANSACTION_DB")
 	if err != nil {
@@ -261,7 +262,7 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 	response := ExpensesSummaryResponse{
 		Total:          total,
 		FormattedTotal: ec.FormatAmount(total),
-		Period:         dateFilter,
+		Period:         period,
 		TypesSummary:   formattedTypeSummaries,
 	}
 
