@@ -90,7 +90,8 @@ func main() {
 	msg, err = MessageFormater(Cyan, portMsg)
 	checkErrOrPrint(msg, err)
 
-	r.Run(":" + port)
+	r.Run("0.0.0.0:" + port) // ✅ escucha en todas las interfaces
+
 }
 
 func MessageFormater(color Color, message string) (string, error) {
