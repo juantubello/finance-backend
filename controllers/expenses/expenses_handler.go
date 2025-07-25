@@ -238,7 +238,7 @@ func (ec *ExpenseController) GetExpensesSummary(c *gin.Context) {
 		Select("type, sum(amount) as total").
 		Where("strftime('%Y-%m', date) = ?", dateFilter).
 		Where("type NOT IN ?", exclude).
-		Group("type").
+		Group("type").Order("total desc").
 		Find(&typeSummaries).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
