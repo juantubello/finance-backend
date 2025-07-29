@@ -5,6 +5,7 @@ import (
 	cards "finance-backend/controllers/base"
 	"finance-backend/models"
 	"finance-backend/services"
+	"finance-backend/utils"
 	"fmt"
 	"net/http"
 	"os"
@@ -44,6 +45,108 @@ type ResumesData struct {
 	Hash       string          `json:"hash"`
 	ResumeData []ResumeDetails `json:"resumeData"`
 	Totals     services.Totals `json:"totals"`
+}
+
+type SubscriptionSummary struct {
+	Servicio             string  `json:"service"`
+	TotalAmount          float64 `json:"total_amount"`
+	TotalAmountFormatted string  `json:"total_amount_formatted"`
+	LogoName             string  `json:"logo_name"`
+}
+
+type subscriptionQueryResult struct {
+	Servicio             string  `gorm:"column:servicio"`
+	ReferenceDescription string  `gorm:"column:reference_description"`
+	TotalAmount          float64 `gorm:"column:total_amount"`
+}
+
+func (ec *CardsController) GetSubscriptionSummary(c *gin.Context) {
+	year := c.Query("year")
+	month := c.Query("month")
+
+	yearInt, err := strconv.Atoi(year)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid year"})
+		return
+	}
+	monthInt, err := strconv.Atoi(month)
+	if err != nil || monthInt < 1 || monthInt > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month"})
+		return
+	}
+	targetMonth := fmt.Sprintf("%04d-%02d", yearInt, monthInt)
+
+	subscriptionMap := utils.LoadSubscriptionMap()
+	subscriptionLogoMap := utils.LoadSubscriptionLogoMap()
+
+	if len(subscriptionMap) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "subscription map is empty"})
+		return
+	}
+
+	// CASE WHEN dinámico
+	caseExpr := "CASE\n"
+	for keyword, label := range subscriptionMap {
+		caseExpr += fmt.Sprintf("  WHEN LOWER(e.description) LIKE '%%%s%%' THEN '%s'\n", keyword, label)
+	}
+	caseExpr += "  ELSE 'otro'\nEND AS servicio"
+
+	// WHERE dinámico
+	var likeConditions []string
+	var likeParams []interface{}
+	for keyword := range subscriptionMap {
+		likeConditions = append(likeConditions, "LOWER(e.description) LIKE ?")
+		likeParams = append(likeParams, fmt.Sprintf("%%%s%%", keyword))
+	}
+	whereClause := "(" + strings.Join(likeConditions, " OR ") + ")"
+
+	db, err := ec.GetDatabaseInstance("CARDS_DB")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var rawResults []subscriptionQueryResult
+	var finalResults []SubscriptionSummary
+
+	// Ejecutar query
+	tx := db.Table("holder_expenses AS e").
+		Select(caseExpr+", MAX(e.description) AS reference_description, SUM(e.amount) AS total_amount").
+		Joins("JOIN holders h ON e.document_number = h.document_number AND e.holder = h.holder").
+		Joins("JOIN resumes r ON h.document_number = r.document_number").
+		Where("strftime('%Y-%m', r.resume_date) = ?", targetMonth).
+		Where(whereClause, likeParams...).
+		Group("servicio").
+		Order("total_amount DESC").
+		Scan(&rawResults)
+
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": tx.Error.Error()})
+		return
+	}
+
+	for _, row := range rawResults {
+		service := row.Servicio
+		if strings.Contains(strings.ToUpper(row.ReferenceDescription), "USD") && !strings.Contains(service, "USD") {
+			service += " USD"
+		}
+
+		// Logo se basa en el nombre sin el " USD"
+		baseLogoKey := strings.Replace(service, " USD", "", 1)
+		logo := subscriptionLogoMap[baseLogoKey]
+		if logo == "" {
+			logo = "default.png"
+		}
+
+		finalResults = append(finalResults, SubscriptionSummary{
+			Servicio:             service,
+			TotalAmount:          row.TotalAmount,
+			TotalAmountFormatted: ec.FormatAmount(row.TotalAmount),
+			LogoName:             logo,
+		})
+	}
+
+	c.JSON(http.StatusOK, finalResults)
 }
 
 func (ec *CardsController) GetCardsExpenses(c *gin.Context) {
