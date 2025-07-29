@@ -96,6 +96,8 @@ func (ec *IncomeController) GetIncomes(c *gin.Context) {
 		query = query.Or("date_time LIKE ?", datePattern2)
 	}
 
+	query = query.Order("id DESC")
+
 	if err := query.Find(&incomes).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
