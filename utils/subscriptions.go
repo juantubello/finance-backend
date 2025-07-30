@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-func LoadSubscriptionMap() map[string]string {
-	env := config.GetEnv("SUBSCRIPTION_MAP")
+func LoadMap(enviroment string) map[string]string {
+	env := config.GetEnv(enviroment)
 	if env == "" {
 		return map[string]string{}
 	}
@@ -23,8 +23,8 @@ func LoadSubscriptionMap() map[string]string {
 	}
 	return result
 }
-func LoadSubscriptionLogoMap() map[string]string {
-	env := config.GetEnv("SUBSCRIPTION_LOGO_MAP")
+func LoadLogosMap(enviroment string) map[string]string {
+	env := config.GetEnv(enviroment)
 	if env == "" {
 		return map[string]string{}
 	}

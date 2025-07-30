@@ -30,4 +30,5 @@ func SetupRoutes(r *gin.Engine) {
 	r.GET("/cards/sync/resumes", cardController.SyncResumes)
 	r.GET("/cards/expenses", cardController.GetCardsExpenses)
 	r.GET("/cards/subscriptions", cardController.GetSubscriptionSummary)
+	r.GET("/cards/specificexpenses", cardController.GetSpecificCardExpenes)
 }
