@@ -60,6 +60,88 @@ type subscriptionQueryResult struct {
 	TotalAmount          float64 `gorm:"column:total_amount"`
 }
 
+type cuotasAboutToExpire struct {
+	Description     string  `gorm:"column:description"`
+	FormattedAmount string  `gorm:"column:formatted_amount"`
+	Amount          float64 `gorm:"column:amount"`
+}
+
+type CuotasAboutToExpireSummary struct {
+	Description     string  `gorm:"column:description"`
+	FormattedAmount string  `gorm:"column:formatted_amount"`
+	Amount          float64 `gorm:"column:amount"`
+	LogoName        string  `json:"logo_name"`
+}
+
+func (ec *CardsController) GetCuotasAboutToExpire(c *gin.Context) {
+	year := c.Query("year")
+	month := c.Query("month")
+
+	yearInt, err := strconv.Atoi(year)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid year"})
+		return
+	}
+	monthInt, err := strconv.Atoi(month)
+	if err != nil || monthInt < 1 || monthInt > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month"})
+		return
+	}
+	targetMonth := fmt.Sprintf("%04d-%02d", yearInt, monthInt)
+
+	subscriptionMap := utils.LoadMap("SPECIFIC_EXPENSES_MAP")
+	//subscriptionLogoMap := utils.LoadLogosMap("SPECIFIC_LOGO_MAP")
+
+	if len(subscriptionMap) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "subscription map is empty"})
+		return
+	}
+
+	db, err := ec.GetDatabaseInstance("CARDS_DB")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var rawResults []cuotasAboutToExpire
+	var finalResults []CuotasAboutToExpireSummary
+
+	// Ejecutar query
+	tx := db.Table("holder_expenses AS e").
+		Select("e.description, e.amount, e.formatted_amount").
+		Joins("JOIN holders h ON e.document_number = h.document_number AND e.holder = h.holder").
+		Joins("JOIN resumes r ON h.document_number = r.document_number").
+		Where("strftime('%Y-%m', r.resume_date) = ?", targetMonth).
+		Where(" LOWER(e.description) LIKE '%C.%'").
+		Order("amount DESC").
+		Scan(&rawResults)
+
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": tx.Error.Error()})
+		return
+	}
+
+	fmt.Println(rawResults)
+
+	for _, row := range rawResults {
+		description := row.Description
+
+		// logo := subscriptionLogoMap[baseLogoKey]
+		// if logo == "" {
+		// 	logo = "default.png"
+		// }
+
+		finalResults = append(finalResults, CuotasAboutToExpireSummary{
+			Description:     description,
+			Amount:          row.Amount,
+			FormattedAmount: row.FormattedAmount,
+			LogoName:        "",
+		})
+	}
+
+	c.JSON(http.StatusOK, finalResults)
+}
+
 func (ec *CardsController) GetSpecificCardExpenes(c *gin.Context) {
 	year := c.Query("year")
 	month := c.Query("month")
@@ -475,7 +557,7 @@ func getResumesFilePath() ([]resumePaths, error) {
 	for _, dir := range directories {
 		entries, err := os.ReadDir(dir.path)
 		if err != nil {
-			return nil, fmt.Errorf("error reading directory %s: %w", dir, err)
+			return nil, fmt.Errorf("error reading directory %s: %w", dir.path, err)
 		}
 		for _, v := range entries {
 			if filepath.Ext(v.Name()) != ".pdf" {
