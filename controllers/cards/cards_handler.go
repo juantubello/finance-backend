@@ -67,9 +67,9 @@ type cuotasAboutToExpire struct {
 }
 
 type CuotasAboutToExpireSummary struct {
-	Description     string  `gorm:"column:description"`
-	FormattedAmount string  `gorm:"column:formatted_amount"`
-	Amount          float64 `gorm:"column:amount"`
+	Description     string  `json:"service"`
+	FormattedAmount string  `json:"total_amount_formatted"`
+	Amount          float64 `json:"total_amount"`
 	LogoName        string  `json:"logo_name"`
 }
 
@@ -121,22 +121,22 @@ func (ec *CardsController) GetCuotasAboutToExpire(c *gin.Context) {
 		return
 	}
 
-	fmt.Println(rawResults)
-
 	for _, row := range rawResults {
-		description := row.Description
 
-		// logo := subscriptionLogoMap[baseLogoKey]
-		// if logo == "" {
-		// 	logo = "default.png"
-		// }
+		pendingCuota, err := getCuotasFromDescription(row.Description)
 
-		finalResults = append(finalResults, CuotasAboutToExpireSummary{
-			Description:     description,
-			Amount:          row.Amount,
-			FormattedAmount: row.FormattedAmount,
-			LogoName:        "",
-		})
+		if err != nil {
+			continue
+		}
+
+		if pendingCuota < 2 && pendingCuota > -1 {
+			finalResults = append(finalResults, CuotasAboutToExpireSummary{
+				Description:     row.Description,
+				Amount:          row.Amount,
+				FormattedAmount: row.FormattedAmount,
+				LogoName:        "",
+			})
+		}
 	}
 
 	c.JSON(http.StatusOK, finalResults)
@@ -634,4 +634,38 @@ func parseMonthYear(input string) (time.Time, error) {
 
 	// Ajustar al primer día del mes
 	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC), nil
+}
+func getCuotasFromDescription(description string) (int, error) {
+	cuotaString := "C."
+	runas := []rune(description)
+	var pendiente int
+	var totalCuotas int
+
+	// Buscar la posición de la subcadena
+	pos := strings.Index(description, cuotaString)
+
+	if pos != -1 {
+
+		start := pos + 2
+		end := pos + 7
+		cuota := string(runas[start:end])
+		fmt.Println(cuota)
+		strSplitted := strings.Split(cuota, "/")
+		for i, row := range strSplitted {
+			fmt.Println(row)
+			if i == 0 {
+				numWithZero, _ := strconv.Atoi(row)
+				pendiente = numWithZero
+			}
+			if i == 1 {
+				numWithZero, _ := strconv.Atoi(row)
+				totalCuotas = numWithZero
+			}
+		}
+
+	} else {
+		return -1, fmt.Errorf("Couldn't find any cuota on description")
+	}
+	cuotasFaltantes := totalCuotas - pendiente
+	return cuotasFaltantes, nil
 }
